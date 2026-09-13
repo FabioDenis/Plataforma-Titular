@@ -1,0 +1,283 @@
+@import "tailwindcss";
+
+/*
+  Titular Studio — Official Brand System
+  --------------------------------------
+  Primary:    #E98E5D (terracotta)  → CTA, focus, active states, brand accents
+  Secondary:  #343C52 (soft navy)   → default UI foreground, text, soft borders
+  Light:      #E3E3E3 (paper gray)  → muted text on navy, dividers
+  Dark:       #1C1C1C (ink)         → strong headings, selection, scrims
+      Base:       #FAFAF9 (warm white)  → global light UI base surface
+
+  Typography:
+  - Raleway (400–900, used with restraint) → UI + brand face
+  - Mongolian Baiti (with serif fallback)  → editorial / Studio accents only
+
+  Surfaces: predominantly light UI, white cards, soft navy borders,
+  restrained shadows and subtle ambient background gradients.
+  The official terracotta gradient is reserved for small brand
+  and decorative highlights only.
+*/
+@theme {
+  /* Official palette */
+  --color-brand-primary: #E98E5D;
+  --color-brand-primary-hover: #DC8051;
+  --color-brand-primary-deep: #C96C3B;
+  --color-brand-primary-soft: #FBEEE5;
+  --color-brand-navy: #343C52;
+  --color-brand-light: #E3E3E3;
+  --color-brand-ink: #1C1C1C;
+
+      /* Centralized global base surface (body background) */
+      --color-brand-base: #FAFAF9;
+
+  /* Legacy aliases kept for compatibility */
+  --color-brand-accent: #E98E5D;
+  --color-brand-gray: #E3E3E3;
+
+  /* Typography */
+  --font-primary: 'Raleway', ui-sans-serif, system-ui, sans-serif;
+  --font-secondary: 'Raleway', ui-sans-serif, system-ui, sans-serif;
+  --font-tertiary: 'Raleway', ui-sans-serif, system-ui, sans-serif;
+  --font-editorial: 'Mongolian Baiti', Georgia, 'Times New Roman', serif;
+  --font-sans: 'Raleway', ui-sans-serif, system-ui, sans-serif;
+
+  /* Restrained elevation */
+  --shadow-card: 0 1px 2px rgba(28, 28, 28, 0.04), 0 10px 28px rgba(52, 60, 82, 0.08);
+  --shadow-raised: 0 6px 16px rgba(52, 60, 82, 0.1), 0 24px 56px rgba(52, 60, 82, 0.14);
+
+  /* Motion */
+  --animate-fade-in: fade-in 0.25s ease-out both;
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
+
+:root {
+  /* Native controls (checkboxes, radios, ranges) follow the brand accent */
+  accent-color: #E98E5D;
+}
+
+@layer base {
+  html,
+  body {
+    overflow-x: hidden;
+    max-width: 100vw;
+  }
+
+  body {
+    /* Predominantly light UI with subtle ambient brand gradients */
+    background-color: var(--color-brand-base);
+    background-image:
+      radial-gradient(1100px 520px at 88% -12%, rgba(233, 142, 93, 0.1), transparent 62%),
+      radial-gradient(950px 500px at -10% 22%, rgba(52, 60, 82, 0.07), transparent 58%),
+      radial-gradient(800px 420px at 50% 110%, rgba(52, 60, 82, 0.05), transparent 60%);
+    background-attachment: fixed;
+    color: var(--color-brand-navy);
+    font-family: var(--font-sans);
+  }
+
+  /* 1. MARCA: Raleway (headings, wordmark and UI) */
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6,
+  .font-heading {
+    font-family: var(--font-primary);
+    font-weight: 700;
+  }
+
+  h1,
+  h2 {
+    font-weight: 800;
+  }
+
+  /* 2. UI: Raleway for controls and navigation */
+  button,
+  input,
+  select,
+  textarea,
+  nav,
+  .font-ui {
+    font-family: var(--font-secondary);
+  }
+
+  /* 3. Descriptive: Raleway for labels and metadata */
+  small,
+  label,
+  .font-desc {
+    font-family: var(--font-tertiary);
+  }
+
+  /* Orange focus ring for every interactive element */
+  a:focus-visible,
+  button:focus-visible,
+  [role='button']:focus-visible,
+  [tabindex]:focus-visible {
+    outline: 2px solid var(--color-brand-primary);
+    outline-offset: 2px;
+  }
+
+  input[type='checkbox'],
+  input[type='radio'],
+  input[type='range'] {
+    accent-color: var(--color-brand-primary);
+  }
+}
+
+/* ---- Surface utilities ---- */
+
+.surface-card {
+  background-color: #ffffff;
+  border: 1px solid rgba(52, 60, 82, 0.14);
+  box-shadow:
+    0 1px 2px rgba(28, 28, 28, 0.04),
+    0 10px 28px rgba(52, 60, 82, 0.08);
+}
+
+.surface-card-subtle {
+  background-color: #fdfcfa;
+  border: 1px solid rgba(52, 60, 82, 0.1);
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.font-primary {
+  font-family: var(--font-primary) !important;
+}
+
+.font-secondary {
+  font-family: var(--font-secondary) !important;
+}
+
+.font-tertiary {
+  font-family: var(--font-tertiary) !important;
+}
+
+/* Titular Studio brand utilities */
+.font-brand {
+  font-family: var(--font-primary) !important;
+  font-weight: 900;
+}
+
+.font-editorial {
+  font-family: var(--font-editorial) !important;
+}
+
+/* Official gradient — small brand/decorative highlights only */
+.bg-brand-gradient {
+  background-image: linear-gradient(
+        135deg,
+        var(--color-brand-primary) 0%,
+        #b16e64 45%,
+        var(--color-brand-navy) 100%
+      );
+}
+
+/* Light scrollbars for shell panels */
+.scrollbar-thin,
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(52, 60, 82, 0.28) transparent;
+}
+
+.scrollbar-thin::-webkit-scrollbar,
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb,
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: rgba(52, 60, 82, 0.26);
+  border-radius: 9999px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track,
+.custom-scrollbar::-webkit-scrollbar-track {
+  background-color: transparent;
+}
+
+/* ---- App shell backdrop decorations ---- */
+
+/*
+  Ambient brand marks owned by the persistent app shell so every view
+  (generator, identity, social) shares one decoration anchored to the
+  viewport: it never shifts with scroll or navigation (never part of
+  exported cards either). Both layers paint exclusively through
+  backgrounds/masks on pseudo-elements of the shell: no extra DOM,
+  non-interactive, and stacked below all in-flow content (header,
+  footer, modals and cards stay above).
+*/
+.app-shell {
+  /* Sticky header height: h-16 (64px) mobile, h-20 (80px) from sm up */
+  --shell-header-height: 80px;
+  /* Upper-right corner bleed of the authentic isotipo mask */
+  --shell-corner-bleed: -95px;
+
+  isolation: isolate;
+}
+
+/* Oversized partial isotipo bleeding off the viewport's bottom-left corner */
+.app-shell::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: url('./assets/titular-studio-isotipo.png');
+  background-repeat: no-repeat;
+  background-size: 480px auto;
+  background-position: left -150px bottom -55px;
+  opacity: 0.16;
+}
+
+/* Original isotipo artwork retains its gradient below the sticky header. */
+.app-shell::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0.20;
+  background-image: url('./assets/titular-studio-isotipo.png');
+  background-repeat: no-repeat;
+  background-size: 330px auto;
+  background-position: right var(--shell-corner-bleed) top var(--shell-header-height);
+}
+
+/* Attenuate decorations on small viewports (visual only, no layout change) */
+@media (width < 40rem) {
+  .app-shell {
+    --shell-header-height: 64px;
+    --shell-corner-bleed: -60px;
+  }
+
+  .app-shell::before {
+    background-size: 300px auto;
+    background-position: left -95px bottom -35px;
+    opacity: 0.12;
+  }
+
+  .app-shell::after {
+    background-size: 210px auto;
+    opacity: 0.15;
+  }
+}

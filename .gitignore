@@ -1,0 +1,29 @@
+node_modules/
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+firebase-service-account*.json
+serviceAccount*.json
+*service-account*.json
+credentials.json
+**/*service-account*.json
+**/*service_account*.json
+**/*firebase-adminsdk*.json
+**/*credentials*.json
+# Local Pi runtime state
+.atl/
+
+# Local tooling state
+.pi/
+.codegraph/
+.media_cache/

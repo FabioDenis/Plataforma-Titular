@@ -1,0 +1,129 @@
+{
+  "entities": {
+    "BillingUser": {
+      "title": "Perfil de Facturación de Usuario",
+      "description": "Almacena los datos de suscripción, plan y saldo de créditos de cada usuario.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "planId": { "type": "string" },
+        "subscriptionStatus": {
+          "type": "string",
+          "enum": ["trial", "pending", "authorized", "paused", "cancelled", "inactive"]
+        },
+        "subscriptionId": { "type": "string" },
+        "monthlyCreditsRemaining": { "type": "number" },
+        "purchasedCreditsRemaining": { "type": "number" },
+        "totalCreditsUsed": { "type": "number" },
+        "currentPeriodEnd": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["uid", "email", "planId", "subscriptionStatus", "monthlyCreditsRemaining", "purchasedCreditsRemaining", "totalCreditsUsed", "createdAt", "updatedAt"]
+    },
+    "LedgerMovement": {
+      "title": "Movimiento Contable de Créditos",
+      "description": "Historial inmutable de ingresos y consumos de créditos por usuario.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["trial_grant", "subscription_grant", "purchase", "consumption", "refund"]
+        },
+        "amount": { "type": "number" },
+        "description": { "type": "string" },
+        "metadata": { "type": "object" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["type", "amount", "description", "createdAt"]
+    },
+    "BillingEvent": {
+      "title": "Registro de Idempotencia de Pagos",
+      "description": "Eventos de Mercado Pago procesados para evitar doble acreditación.",
+      "type": "object",
+      "properties": {
+        "eventId": { "type": "string" },
+        "processedAt": { "type": "string" },
+        "type": { "type": "string" },
+        "metadata": { "type": "object" }
+      },
+      "required": ["eventId", "processedAt"]
+    },
+    "MetaSocialConnection": {
+      "title": "Conexiones de Redes Sociales Meta",
+      "description": "Metadatos públicos de cuentas vinculadas de Facebook e Instagram para la organización.",
+      "type": "object",
+      "properties": {
+        "facebook": { "type": "object" },
+        "instagram": { "type": "object" },
+        "updatedAt": { "type": "string" }
+      }
+    },
+    "PublicationRecord": {
+      "title": "Historial de Publicaciones Institucionales",
+      "description": "Registro inmutable de publicaciones realizadas o programadas en Facebook e Instagram.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "organizationId": { "type": "string" },
+        "status": { "type": "string" },
+        "articleTitle": { "type": "string" },
+        "category": { "type": "string" },
+        "content": { "type": "object" },
+        "targets": { "type": "object" },
+        "results": { "type": "object" },
+        "publishedBy": { "type": "string" },
+        "publishedAt": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "organizationId", "status", "articleTitle", "createdAt"]
+    },
+    "GenerationMovement": {
+      "title": "Movimiento en Libro Contable de Generaciones",
+      "description": "Registro inmutable de asignaciones manuales de publicaciones realizadas por administradores.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "type": "string", "enum": ["ADMIN_GRANT"] },
+        "amountAdded": { "type": "number" },
+        "previousPublicationLimit": { "type": "number" },
+        "newPublicationLimit": { "type": "number" },
+        "publicationUsed": { "type": "number" },
+        "previousAvailable": { "type": "number" },
+        "newAvailable": { "type": "number" },
+        "adminUid": { "type": "string" },
+        "adminEmail": { "type": "string" },
+        "reason": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "type", "amountAdded", "previousPublicationLimit", "newPublicationLimit", "publicationUsed", "previousAvailable", "newAvailable", "adminUid", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/billingUsers/{uid}": {
+      "schema": "#/entities/BillingUser",
+      "description": "Perfiles de facturación y saldos de créditos por usuario."
+    },
+    "/billingUsers/{uid}/ledger/{eventId}": {
+      "schema": "#/entities/LedgerMovement",
+      "description": "Libro contable de movimientos de créditos."
+    },
+    "/billingEvents/{eventId}": {
+      "schema": "#/entities/BillingEvent",
+      "description": "Eventos procesados de webhooks para garantizar idempotencia."
+    },
+    "/organizations/{orgId}/socialConnections/meta": {
+      "schema": "#/entities/MetaSocialConnection",
+      "description": "Cuentas de Facebook e Instagram vinculadas a la organización."
+    },
+    "/organizations/{orgId}/publications/{pubId}": {
+      "schema": "#/entities/PublicationRecord",
+      "description": "Historial de publicaciones enviadas a redes sociales por la organización."
+    },
+    "/organizations/{orgId}/generationLedger/{movementId}": {
+      "schema": "#/entities/GenerationMovement",
+      "description": "Historial inmutable de asignación de generaciones administrables por organización."
+    }
+  }
+}

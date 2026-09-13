@@ -1,0 +1,57 @@
+strict_tdd: true
+context: |
+  react-example is a Node.js/TypeScript ESM, React project.
+  Detected markers: package.json, tsconfig.json, npm package manager.
+  Package managers: npm.
+  Additional evidence: Test-like files detected (4); examples: server\ai-generations.emulator.test.ts, server\auth-bootstrap.emulator.test.ts, server\auth-bootstrap.test.ts, server\gemini.test.ts.
+  Primary test command: npm test.
+  Unit tests: package script (npm test).
+  Integration tests: none.
+  E2E tests: none.
+rules:
+  proposal:
+    require_problem_statement: true
+  spec:
+    require_acceptance_criteria: true
+  design:
+    require_tradeoffs: true
+  tasks:
+    protect_review_workload: true
+  apply:
+    test_command: "npm test"
+  verify:
+    test_command: "npm test"
+testing:
+  detected: "2026-09-10"
+  runner:
+    command: "npm test"
+    framework: "package script"
+  layers:
+    unit: "package script"
+    integration: ""
+    e2e: ""
+  commands:
+    unit:
+      - scope: "."
+        command: "npm test"
+        framework: "package script"
+    integration:
+      []
+    e2e:
+      []
+  coverage:
+    command: ""
+    commands:
+      []
+quality:
+  lint: "npm run lint"
+  lint_commands:
+    - scope: "."
+      command: "npm run lint"
+      framework: "linter"
+  typecheck: ""
+  typecheck_commands:
+    []
+  format: ""
+  format_commands:
+    []

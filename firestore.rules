@@ -1,0 +1,84 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Funciones auxiliares de seguridad
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isUser(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email.lower() == 'delgado122016@gmail.com'
+      );
+    }
+
+    // Permisos para la colección de usuarios (users/{userId})
+    match /users/{userId} {
+      allow read: if isUser(userId) || isAdmin();
+      allow create: if isUser(userId) && request.resource.data.uid == request.auth.uid;
+      // Los usuarios normales pueden actualizar su perfil, pero no autoasignarse rol de administrador
+      allow update: if (isUser(userId) &&
+        (!('role' in request.resource.data) || request.resource.data.role == resource.data.role) &&
+        (!('isAdmin' in request.resource.data) || request.resource.data.isAdmin == resource.data.isAdmin))
+        || isAdmin();
+    }
+
+    // Permisos para la colección de organizaciones (organizations/{orgId})
+    match /organizations/{orgId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.ownerUid == request.auth.uid;
+      // Los usuarios pueden actualizar branding/configuración y registrar consumo, pero no pueden aumentar publicationLimit ni alterar status
+      allow update: if (isSignedIn() &&
+        (resource.data.ownerUid == request.auth.uid || resource.data.ownerUid == null || resource.data.ownerUid == '' || (resource.data.members != null && request.auth.uid in resource.data.members)) &&
+        (!('publicationLimit' in request.resource.data) || request.resource.data.publicationLimit <= resource.data.publicationLimit) &&
+        (!('status' in request.resource.data) || request.resource.data.status == resource.data.status))
+        || isAdmin();
+      allow delete: if (isSignedIn() && resource.data.ownerUid == request.auth.uid) || isAdmin();
+
+      // Tokens sensibles de Meta protegidos del lado servidor (Zero-Trust)
+      match /privateMetaTokens/{tokenDoc} {
+        allow read, write: if false;
+      }
+
+      // Conexiones sociales públicas de la institución
+      match /socialConnections/{connId} {
+        allow read: if isSignedIn();
+        allow write: if isAdmin();
+      }
+
+      // Historial de publicaciones institucionales
+      match /publications/{pubId} {
+        allow read: if isSignedIn();
+        allow create, update: if isSignedIn();
+      }
+
+      // Historial inmutable de generaciones asignadas por administradores
+      match /generationLedger/{movementId} {
+        allow read: if isSignedIn();
+        allow write: if isAdmin();
+      }
+    }
+
+    // Regla de Seguridad SaaS Zero-Trust para Billing (billingUsers/{uid})
+    match /billingUsers/{uid} {
+      allow read: if isUser(uid);
+      allow write: if false;
+
+      match /ledger/{eventId} {
+        allow read: if isUser(uid);
+        allow write: if false;
+      }
+    }
+
+    // Registros de eventos de webhooks inaccesibles directamente por los clientes
+    match /billingEvents/{eventId} {
+      allow read, write: if false;
+    }
+  }
+}
+
