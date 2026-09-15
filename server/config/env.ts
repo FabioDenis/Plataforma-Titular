@@ -93,6 +93,13 @@ export function validateServerStartupEnv(): void {
     }
   }
 
+  // Log-only guardrail: webhook signature enforcement is strongly recommended in production.
+  if (process.env.NODE_ENV === 'production' && !mpRequiresSignature) {
+    console.warn(
+      'Mercado Pago webhook signature enforcement is disabled (MERCADOPAGO_REQUIRE_SIGNATURE is not "true"); this is discouraged in production.'
+    );
+  }
+
   if (issues.length > 0) {
     throw new Error(`Invalid server environment configuration:\n- ${issues.join('\n- ')}`);
   }

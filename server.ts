@@ -32,6 +32,7 @@ import {
   getStoredMedia,
   isMetaConfigured,
   MetaService,
+  MetaServiceError,
 } from './server/services/meta';
 import {
   checkIsHermesAdmin,
@@ -109,6 +110,32 @@ function isUrlSafe(urlString: string): boolean {
   } catch {
     return false;
   }
+}
+
+// Messages eligible to be returned to clients: only curated, static user-facing strings authored
+// in server/services/meta. MetaServiceError instances tagged with the UNKNOWN category carry
+// dynamic text derived from raw Meta Graph API responses, so they fall back to a generic message.
+function getClientSafeErrorMessage(err: any, genericMessage: string): string {
+  if (err instanceof MetaServiceError && err.category !== 'UNKNOWN' && typeof err.userMessage === 'string') {
+    return err.userMessage;
+  }
+  return genericMessage;
+}
+
+// Escapes dynamic values interpolated into HTML text contexts to prevent XSS.
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// Serializes a value for safe interpolation inside a <script> block: JSON quoting plus escaping
+// of '<' so a payload cannot close the script tag early and inject markup.
+function toSafeScriptJson(value: unknown): string {
+  return JSON.stringify(value).replace(/</g, '\\u003c');
 }
 
 export interface ServerTestDependencies {
@@ -301,6 +328,11 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
           return res.status(400).json({ error: 'Solo protocolos HTTP y HTTPS están soportados.' });
         }
 
+        // SSRF guard: reject targets pointing at private/internal network hosts.
+        if (!isUrlSafe(rawUrl)) {
+          return res.status(400).json({ error: 'La URL solicitada no está permitida.' });
+        }
+
         const response = await fetcher(parsedUrl.toString(), {
           headers: {
             'User-Agent':
@@ -409,7 +441,7 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
         return res.json({ success: true, ...result });
       } catch (err: any) {
         console.error('Error adding generations:', err);
-        return res.status(500).json({ error: err.message || 'Error al agregar generaciones.' });
+        return res.status(500).json({ error: 'Error al agregar generaciones.' });
       }
     });
 
@@ -466,7 +498,7 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
         return res.json(result);
       } catch (err: any) {
         console.error('Error creating subscription:', err);
-        return res.status(400).json({ error: err.message || 'Error al procesar la suscripción.' });
+        return res.status(400).json({ error: 'Error al procesar la suscripción.' });
       }
     });
 
@@ -485,7 +517,7 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
         return res.json(result);
       } catch (err: any) {
         console.error('Error creating credit checkout:', err);
-        return res.status(400).json({ error: err.message || 'Error al iniciar la compra de créditos.' });
+        return res.status(400).json({ error: 'Error al iniciar la compra de créditos.' });
       }
     });
 
@@ -497,7 +529,7 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
         return res.json(result);
       } catch (err: any) {
         console.error('Error cancelling subscription:', err);
-        return res.status(400).json({ error: err.message || 'Error al cancelar la suscripción.' });
+        return res.status(400).json({ error: 'Error al cancelar la suscripción.' });
       }
     });
 
@@ -571,7 +603,7 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
         return res.json(status);
       } catch (err: any) {
         console.error('Error fetching Meta status:', err);
-        return res.status(500).json({ error: err.message || 'Error al obtener estado de redes sociales.' });
+        return res.status(500).json({ error: 'Error al obtener estado de redes sociales.' });
       }
     });
 
@@ -592,9 +624,10 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
         return res.json({ url: authUrl });
       } catch (err: any) {
         console.error('Error generating Meta OAuth URL:', err);
+        const publicMessage = getClientSafeErrorMessage(err, 'Error al generar la URL de autorización de Meta.');
         return res.status(400).json({
-          error: err.message || 'Error al generar la URL de autorización de Meta.',
-          userMessage: err.userMessage,
+          error: publicMessage,
+          userMessage: publicMessage,
         });
       }
     });
@@ -622,12 +655,12 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
             <body>
               <div class="card">
                 <h2>No se pudo conectar con Meta</h2>
-                <p>${errMsg}</p>
+                <p>${escapeHtml(errMsg)}</p>
                 <button onclick="window.close()">Cerrar ventana</button>
               </div>
               <script>
                 if (window.opener) {
-                  window.opener.postMessage({ type: 'META_AUTH_ERROR', error: ${JSON.stringify(errMsg)} }, '*');
+                  window.opener.postMessage({ type: 'META_AUTH_ERROR', error: ${toSafeScriptJson(errMsg)} }, '*');
                 }
               </script>
             </body>
@@ -661,9 +694,9 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
                 if (window.opener) {
                   window.opener.postMessage({
                     type: 'META_PAGES_AVAILABLE',
-                    orgId: ${JSON.stringify(result.orgId)},
-                    sessionKey: ${JSON.stringify(result.sessionKey)},
-                    pages: ${JSON.stringify(result.pages)}
+                    orgId: ${toSafeScriptJson(result.orgId)},
+                    sessionKey: ${toSafeScriptJson(result.sessionKey)},
+                    pages: ${toSafeScriptJson(result.pages)}
                   }, '*');
                   setTimeout(() => { window.close(); }, 800);
                 } else {
@@ -675,7 +708,7 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
         `);
       } catch (err: any) {
         console.error('Error handling Meta OAuth callback:', err);
-        const errMsg = err.userMessage || err.message || 'Error al procesar la autorización de Meta.';
+        const errMsg = getClientSafeErrorMessage(err, 'Error al procesar la autorización de Meta.');
         return res.send(`
           <!DOCTYPE html>
           <html>
@@ -693,12 +726,12 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
             <body>
               <div class="card">
                 <h2>No se pudo completar la conexión</h2>
-                <p>${errMsg}</p>
+                <p>${escapeHtml(errMsg)}</p>
                 <button onclick="window.close()">Cerrar ventana</button>
               </div>
               <script>
                 if (window.opener) {
-                  window.opener.postMessage({ type: 'META_AUTH_ERROR', error: ${JSON.stringify(errMsg)} }, '*');
+                  window.opener.postMessage({ type: 'META_AUTH_ERROR', error: ${toSafeScriptJson(errMsg)} }, '*');
                 }
               </script>
             </body>
@@ -730,7 +763,7 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
       } catch (err: any) {
         console.error('Error selecting Meta page:', err);
         return res.status(400).json({
-          error: err.userMessage || err.message || 'Error al vincular la página seleccionada.',
+          error: getClientSafeErrorMessage(err, 'Error al vincular la página seleccionada.'),
         });
       }
     });
@@ -753,7 +786,7 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
         return res.json({ success: true, message: 'Cuenta desconectada correctamente.' });
       } catch (err: any) {
         console.error('Error disconnecting Meta accounts:', err);
-        return res.status(500).json({ error: err.message || 'Error al desconectar cuentas de Meta.' });
+        return res.status(500).json({ error: 'Error al desconectar cuentas de Meta.' });
       }
     });
 
@@ -768,7 +801,7 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
         return res.json(result);
       } catch (err: any) {
         console.error('Error storing media for Meta:', err);
-        return res.status(500).json({ error: err.message || 'Error al procesar la imagen para publicación.' });
+        return res.status(500).json({ error: 'Error al procesar la imagen para publicación.' });
       }
     });
 
@@ -808,6 +841,14 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
 
         const targetOrgId = orgId || `org_${uid}`;
 
+        // Org authorization: only administrators/owners of the organization may publish to Meta.
+        const hasPermission = await checkUserAdminPermission(uid, targetOrgId);
+        if (!hasPermission) {
+          return res.status(403).json({
+            error: 'Permisos insuficientes: Solo los usuarios con rol de Administrador pueden publicar en redes sociales.',
+          });
+        }
+
         const publishResponse = await executeMultiPlatformPublish({
           orgId: targetOrgId,
           orgName: orgName || 'Institución',
@@ -831,8 +872,7 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
       } catch (err: any) {
         console.error('Error executing Meta publish:', err);
         return res.status(400).json({
-          error: err.userMessage || err.message || 'Error al procesar la publicación en redes sociales.',
-          details: err.technicalDetails,
+          error: getClientSafeErrorMessage(err, 'Error al procesar la publicación en redes sociales.'),
         });
       }
     });
@@ -847,11 +887,20 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
           return res.status(400).json({ error: 'Faltan parámetros requeridos (orgId, publicationId, platform).' });
         }
 
+        // Org authorization: only administrators/owners of the organization may retry Meta publications.
+        const userId = req.user!.uid;
+        const hasPermission = await checkUserAdminPermission(userId, orgId);
+        if (!hasPermission) {
+          return res.status(403).json({
+            error: 'Permisos insuficientes: Solo los usuarios con rol de Administrador pueden reintentar publicaciones en redes sociales.',
+          });
+        }
+
         const result = await retryPlatformPublish(orgId, publicationId, platform, email);
         return res.json({ success: result.status === 'published', result });
       } catch (err: any) {
         console.error('Error retrying publish:', err);
-        return res.status(400).json({ error: err.userMessage || err.message || 'Error al reintentar la publicación.' });
+        return res.status(400).json({ error: getClientSafeErrorMessage(err, 'Error al reintentar la publicación.') });
       }
     });
 

@@ -250,7 +250,11 @@ export function verifyMpWebhookSignature(
     hmac.update(manifest);
     const calculatedHash = hmac.digest('hex');
 
-    return calculatedHash === v1;
+    // Timing-safe comparison; the length check satisfies timingSafeEqual's equal-length requirement.
+    if (v1.length !== calculatedHash.length) {
+      return false;
+    }
+    return crypto.timingSafeEqual(Buffer.from(calculatedHash), Buffer.from(v1));
   } catch (err) {
     console.error('Error verifying MP webhook signature:', err);
     return false;

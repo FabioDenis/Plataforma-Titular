@@ -76,7 +76,13 @@ export function verifyOAuthState(stateString: string): { orgId: string; userId: 
     const data = `${orgId}:${userId}:${timestamp}`;
     const expectedHmac = crypto.createHmac('sha256', secret).update(data).digest('hex');
 
-    if (hmac !== expectedHmac) {
+    // Timing-safe comparison; the type/length check satisfies timingSafeEqual's equal-length
+    // requirement and keeps behavior identical for valid and invalid signatures.
+    if (
+      typeof hmac !== 'string' ||
+      hmac.length !== expectedHmac.length ||
+      !crypto.timingSafeEqual(Buffer.from(hmac, 'utf8'), Buffer.from(expectedHmac, 'utf8'))
+    ) {
       throw new Error('Firma de seguridad inválida en la respuesta de autorización de Meta.');
     }
 
