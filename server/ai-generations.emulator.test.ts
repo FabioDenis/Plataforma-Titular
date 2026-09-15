@@ -137,23 +137,76 @@ test('commercial generation completes once, replays persisted output, and aggreg
   assert.equal(aggregate.totalTokens, 15);
 });
 
-test('ten concurrent requests with one key produce one provider call and one publication', async () => {
+test('nine in-flight duplicates during one held provider call conflict without extra provider calls or consumption', async () => {
+  const identity = nextIdentity();
+  await seed(identity);
+  let calls = 0;
+  let releaseWinner!: () => void;
+  let signalProviderStarted!: () => void;
+  // Explicit barrier instead of a sleep-based race: the winner cannot finalize until every duplicate has been
+  // answered, so a late Firestore transaction retry can never observe the completed document here.
+  const winnerHeld = new Promise<void>((resolve) => { releaseWinner = resolve; });
+  const providerStarted = new Promise<void>((resolve) => { signalProviderStarted = resolve; });
+  const generateGeminiContent: any = async (_request: unknown, dependencies: any) => {
+    calls += 1;
+    await dependencies.onAttempt(successfulAttempt());
+    signalProviderStarted();
+    await winnerHeld;
+    return successfulResult();
+  };
+  await withApp({ generateGeminiContent }, async (baseUrl) => {
+    // Watchdog guarantees the barrier is released even if an assertion fails mid-flight.
+    const watchdog = setTimeout(() => releaseWinner(), 15_000);
+    try {
+      const winner = request(baseUrl, '/api/generate-posts', identity, { key: 'held-winner-key-1' });
+      await providerStarted; // The reservation commits before the provider runs, so duplicates now observe it.
+      const duplicates = await Promise.all(Array.from({ length: 9 }, () => request(baseUrl, '/api/generate-posts', identity, { key: 'held-winner-key-1' })));
+      for (const duplicate of duplicates) assert.equal(duplicate.status, 409);
+      releaseWinner();
+      assert.equal((await winner).status, 200);
+    } finally {
+      clearTimeout(watchdog);
+      releaseWinner();
+    }
+  });
+  assert.equal(calls, 1);
+  const db = getAdminDb();
+  const org = (await db.doc(`organizations/${identity.orgId}`).get()).data()!;
+  assert.equal(org.publicationUsed, 1);
+  assert.equal(org.activeGenerationReservations, 0);
+  const generation = (await db.doc(`organizations/${identity.orgId}/aiGenerations/held-winner-key-1`).get()).data()!;
+  assert.equal(generation.state, 'completed');
+  assert.equal(generation.publicationConsumed, true);
+  assert.equal((await db.collection(`organizations/${identity.orgId}/aiGenerations/held-winner-key-1/attempts`).get()).size, 1);
+});
+
+test('nine concurrent completed replays return the persisted output without provider calls or extra consumption', async () => {
   const identity = nextIdentity();
   await seed(identity);
   let calls = 0;
   const generateGeminiContent: any = async (_request: unknown, dependencies: any) => {
     calls += 1;
     await dependencies.onAttempt(successfulAttempt());
-    await new Promise((resolve) => setTimeout(resolve, 25));
     return successfulResult();
   };
   await withApp({ generateGeminiContent }, async (baseUrl) => {
-    const responses = await Promise.all(Array.from({ length: 10 }, () => request(baseUrl, '/api/generate-posts', identity, { key: 'concurrent-key-01' })));
-    assert.equal(responses.filter((response) => response.status === 200).length, 1);
-    assert.equal(responses.filter((response) => response.status === 409).length, 9);
+    const first = await request(baseUrl, '/api/generate-posts', identity, { key: 'replay-burst-key-1' });
+    assert.equal(first.status, 200);
+    const firstBody: any = await first.json();
+    const replays = await Promise.all(Array.from({ length: 9 }, () => request(baseUrl, '/api/generate-posts', identity, { key: 'replay-burst-key-1' })));
+    for (const replay of replays) {
+      assert.equal(replay.status, 200);
+      assert.deepEqual(await replay.json(), firstBody);
+    }
   });
   assert.equal(calls, 1);
-  assert.equal((await getAdminDb().doc(`organizations/${identity.orgId}`).get()).data()!.publicationUsed, 1);
+  const db = getAdminDb();
+  const org = (await db.doc(`organizations/${identity.orgId}`).get()).data()!;
+  assert.equal(org.publicationUsed, 1);
+  assert.equal(org.activeGenerationReservations, 0);
+  const generation = (await db.doc(`organizations/${identity.orgId}/aiGenerations/replay-burst-key-1`).get()).data()!;
+  assert.equal(generation.state, 'completed');
+  assert.equal(generation.publicationConsumed, true);
 });
 
 test('a second key cannot reserve past a publication limit of one', async () => {
