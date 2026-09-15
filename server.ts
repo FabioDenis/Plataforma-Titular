@@ -137,7 +137,12 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
   const runBootstrapAccount = dependencies.bootstrapAccount || bootstrapAccount;
   const runGemini = dependencies.generateGeminiContent || generateGeminiContent;
   const fetcher = dependencies.fetch || fetch;
-  app.use(express.json({ limit: '50mb' }));
+  app.use(express.json({ limit: '30mb' }));
+
+  // Cloud Run container health probe (no auth, no external service calls)
+  app.get('/health', (req, res) => {
+    res.status(200).json({ status: 'ok' });
+  });
 
   try {
     async function runTrackedGeminiOperation<T>(input: {
@@ -1700,25 +1705,29 @@ ${article.content}
     }
 
     if (process.env.NODE_ENV === 'production') {
-      const cwdDist = path.join(process.cwd(), 'dist');
-      const localDist = path.resolve(currentDir, 'dist');
-      const staticPath = fs.existsSync(cwdDist)
-        ? cwdDist
-        : fs.existsSync(localDist)
-        ? localDist
-        : currentDir;
+      if (process.env.SERVE_STATIC === 'true') {
+        const cwdDist = path.join(process.cwd(), 'dist');
+        const localDist = path.resolve(currentDir, 'dist');
+        const staticPath = fs.existsSync(cwdDist)
+          ? cwdDist
+          : fs.existsSync(localDist)
+          ? localDist
+          : currentDir;
 
-      console.log(`📦 Production mode active. Serving static files from: ${staticPath}`);
-      app.use(express.static(staticPath));
+        console.log(`📦 Production mode active. Serving static files from: ${staticPath}`);
+        app.use(express.static(staticPath));
 
-      app.get('*', (req, res) => {
-        const indexPath = path.join(staticPath, 'index.html');
-        if (fs.existsSync(indexPath)) {
-          res.sendFile(indexPath);
-        } else {
-          res.status(404).send('Aplicación no encontrada en producción.');
-        }
-      });
+        app.get('*', (req, res) => {
+          const indexPath = path.join(staticPath, 'index.html');
+          if (fs.existsSync(indexPath)) {
+            res.sendFile(indexPath);
+          } else {
+            res.status(404).send('Aplicación no encontrada en producción.');
+          }
+        });
+      } else {
+        console.log('📦 Production mode active. API-only mode (set SERVE_STATIC=true to serve the built SPA).');
+      }
     } else {
       console.log('⚡ Development mode active. Mounting Vite middleware.');
       const { createServer: createViteServer } = await import('vite');
@@ -1738,9 +1747,9 @@ ${article.content}
 async function startServer() {
   validateServerStartupEnv();
   const app = await createApp();
-  const port = getOptionalNumberEnv('PORT', 3000);
+  const port = getOptionalNumberEnv('PORT', 8080);
   app.listen(port, '0.0.0.0', () => {
-    console.log(`NewsFlow AI server listening on http://0.0.0.0:${port} (PORT env: ${process.env.PORT || 'default 3000'})`);
+    console.log(`NewsFlow AI server listening on http://0.0.0.0:${port} (PORT env: ${process.env.PORT || 'default 8080'})`);
   });
 }
 

@@ -1,0 +1,50 @@
+# Minimal, secret-free build context for the production API image.
+
+# Dependencies and build output (both are rebuilt inside the image)
+node_modules
+dist
+
+# Version control and repo metadata
+.git
+.gitignore
+
+# Local environment files and credential material — never enter the context
+.env*
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+*service-account*.json
+credentials*.json
+.firebaserc
+
+# Agent / session tooling artifacts
+.pi
+.codegraph
+.media_cache
+.atl
+openspec
+
+# Client sources are not part of the API image. Exceptions: server.ts bundles
+# src/data/sampleNews.ts, which imports src/types.ts (type-only), so those two
+# must remain reachable for the esbuild build stage.
+src/*
+!src/data
+!src/types.ts
+
+# Client assets and docs not needed by the server bundle
+public
+index.html
+docs
+coverage
+*.log
+firebase-blueprint.json
+logoH.png
+README.md
+# esbuild CLI bundling does not require tsconfig.json
+tsconfig.json
+
+# Server tests never enter the image
+server/**/*.test.ts
