@@ -5,14 +5,12 @@ interface IntegrationsModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSelectSampleFeedUrl: (url: string) => void;
-  onOpenSocial?: () => void;
 }
 
 export const IntegrationsModal: React.FC<IntegrationsModalProps> = ({
   isOpen,
   onClose,
   onSelectSampleFeedUrl,
-  onOpenSocial,
 }) => {
   const [rssUrl, setRssUrl] = useState('https://tumedio.com/feed/');
   const [isSimulating, setIsSimulating] = useState(false);
@@ -58,7 +56,7 @@ export const IntegrationsModal: React.FC<IntegrationsModalProps> = ({
 
         <div className="space-y-4 text-xs">
           <p className="text-brand-navy/80 leading-relaxed font-normal">
-            NewsFlow AI está diseñado con arquitectura modular para conectarse directamente al CMS de tu diario o medio digital (WordPress, Ghost, Drupal, RSS Feeds o Webhooks).
+            Titular está diseñado con arquitectura modular para conectarse directamente al CMS de tu diario o medio digital (WordPress, Ghost, Drupal, RSS Feeds o Webhooks).
           </p>
 
           {/* Integration Modules Grid */}
@@ -142,7 +140,7 @@ export const IntegrationsModal: React.FC<IntegrationsModalProps> = ({
             )}
           </div>
 
-          {/* Direct Meta Social Publishing Banner */}
+          {/* Social publishing banner — manual flow for now */}
           <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 space-y-2">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -150,28 +148,15 @@ export const IntegrationsModal: React.FC<IntegrationsModalProps> = ({
                   <Facebook className="h-4 w-4" />
                   <Instagram className="h-4 w-4 text-rose-600" />
                 </div>
-                <h4 className="text-xs font-bold text-brand-ink">Publicación Real en Meta (Facebook & Instagram)</h4>
+                <h4 className="text-xs font-bold text-brand-ink">Publicación en Redes Sociales (Facebook & Instagram)</h4>
               </div>
-              <span className="rounded bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
-                DISPONIBLE
+              <span className="rounded bg-amber-50 border border-amber-200 px-2 py-0.5 text-[10px] font-bold text-amber-700">
+                FLUJO MANUAL
               </span>
             </div>
             <p className="text-[11px] text-brand-navy/80">
-              Conecta las cuentas oficiales de tu institución mediante OAuth de Meta para publicar comunicados y noticias directamente desde Hermes.
+              Descargá la imagen en el formato requerido por cada red, copiá el texto con sus hashtags y subilo manualmente desde la app que corresponda.
             </p>
-            {onOpenSocial && (
-              <button
-                type="button"
-                onClick={() => {
-                  onClose();
-                  onOpenSocial();
-                }}
-                className="mt-1 flex items-center gap-1 text-xs font-bold text-brand-primary-deep hover:text-brand-primary underline cursor-pointer"
-              >
-                <span>Administrar cuentas sociales de la institución</span>
-                <ArrowRight className="h-3 w-3" />
-              </button>
-            )}
           </div>
 
           <div className="pt-3 border-t border-brand-navy/15 flex justify-end">

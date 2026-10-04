@@ -53,8 +53,8 @@ export async function createSubscriptionPreference(
     : plan.monthlyPrice;
 
   const reason = isAnnual
-    ? `NewsFlow AI - Plan ${plan.name} (Anual - 2 meses bonificados)`
-    : `NewsFlow AI - Plan ${plan.name} (Mensual)`;
+    ? `Titular - Plan ${plan.name} (Anual - 2 meses bonificados)`
+    : `Titular - Plan ${plan.name} (Mensual)`;
 
   const body = {
     reason,
@@ -124,7 +124,7 @@ export async function createCreditPackCheckout(uid: string, email: string, packI
     items: [
       {
         id: pack.id,
-        title: `NewsFlow AI - ${pack.name}`,
+        title: `Titular - ${pack.name}`,
         quantity: 1,
         unit_price: pack.price,
         currency_id: 'ARS',
@@ -138,7 +138,7 @@ export async function createCreditPackCheckout(uid: string, email: string, packI
       failure: `${appUrl}/?billing=failure`,
     },
     auto_return: 'approved',
-    statement_descriptor: 'NEWSFLOW AI',
+    statement_descriptor: 'TITULAR',
     metadata: {
       uid,
       pack_id: pack.id,

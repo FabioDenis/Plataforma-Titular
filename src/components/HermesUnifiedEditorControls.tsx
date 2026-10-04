@@ -125,8 +125,8 @@ export const HermesUnifiedEditorControls: React.FC<HermesUnifiedEditorControlsPr
 
   return (
     <div className="flex flex-col bg-white border border-brand-navy/15 rounded-xl overflow-hidden shadow-card">
-      {/* 1. TOP TAB NAVIGATION BAR */}
-      <div className="grid grid-cols-4 sm:grid-cols-8 border-b border-brand-navy/15 bg-white p-1 gap-1">
+      {/* 1. TOP TAB NAVIGATION BAR (2 rows of 4 so every label stays readable) */}
+      <div className="grid grid-cols-4 border-b border-brand-navy/15 bg-white p-1.5 gap-1">
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeControlTab === tab.id;
@@ -134,14 +134,15 @@ export const HermesUnifiedEditorControls: React.FC<HermesUnifiedEditorControlsPr
             <button
               key={tab.id}
               onClick={() => onChangeControlTab(tab.id)}
-              className={`flex flex-col sm:flex-row items-center justify-center gap-1 p-2 text-[10px] sm:text-[11px] font-bold rounded-md transition-all cursor-pointer ${
+              title={tab.label}
+              className={`flex flex-col sm:flex-row items-center justify-center gap-1 px-1.5 py-2 text-[10px] sm:text-[11px] font-bold rounded-md transition-all cursor-pointer ${
                 isActive
                   ? 'bg-brand-primary text-brand-ink shadow-none border-b-2 border-brand-primary-deep'
                   : 'text-brand-navy/80 hover:text-brand-ink hover:bg-brand-navy/10'
               }`}
             >
               <Icon className={`h-3.5 w-3.5 shrink-0 ${isActive ? 'text-brand-ink' : 'text-brand-navy/50'}`} />
-              <span className="truncate">{tab.label}</span>
+              <span className="whitespace-nowrap leading-tight">{tab.label}</span>
             </button>
           );
         })}
@@ -226,7 +227,7 @@ export const HermesUnifiedEditorControls: React.FC<HermesUnifiedEditorControlsPr
             <div className="flex items-center justify-between pb-2 border-b border-brand-navy/15">
               <div>
                 <h4 className="text-xs font-bold text-brand-ink uppercase tracking-wider flex items-center gap-1.5">
-                  <LayoutTemplate className="h-3.5 w-3.5 text-brand-primary-deep" /> Plantillas Oficiales de Hermes
+                  <LayoutTemplate className="h-3.5 w-3.5 text-brand-primary-deep" /> Plantillas Oficiales de Titular
                 </h4>
                 <p className="text-[11px] text-brand-navy/60">
                   Selecciona el arquetipo visual adaptado a la identidad de tu medio.

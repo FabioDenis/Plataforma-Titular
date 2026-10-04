@@ -262,7 +262,7 @@ export const HermesTemplatesGallery: React.FC<HermesTemplatesGalleryProps> = ({
   );
 
   const mediaLogo = currentIdentity?.logoUrl || '';
-  const mediaName = currentIdentity?.name || 'HERMES PUBLICA';
+  const mediaName = currentIdentity?.name || 'TITULAR';
   const mediaWebsite = currentIdentity?.websiteUrl
     ? currentIdentity.websiteUrl.toUpperCase().replace(/^HTTPS?:\/\//, '').replace(/^WWW\./, '')
     : `${mediaName.toUpperCase().replace(/\s+/g, '')}.COM`;
@@ -275,7 +275,7 @@ export const HermesTemplatesGallery: React.FC<HermesTemplatesGalleryProps> = ({
           <div className="flex items-center gap-2">
             <LayoutTemplate className="h-5 w-5 text-brand-primary-deep" />
             <h3 className="text-sm font-bold text-brand-ink uppercase tracking-wider">
-              Plantillas Oficiales de Hermes
+              Plantillas Oficiales de Titular
             </h3>
             <span className="rounded-full bg-brand-primary-soft px-2 py-0.5 text-[10px] font-mono font-bold text-brand-navy border border-brand-primary/40">
               Sistema Unificado
@@ -399,6 +399,7 @@ export const HermesTemplatesGallery: React.FC<HermesTemplatesGalleryProps> = ({
                   logoUrl={mediaLogo}
                   mediaName={mediaName}
                   websiteText={mediaWebsite}
+                  callToAction={currentIdentity.editorial?.callToAction}
                   imageZoom={imageZoom}
                   imageOffsetX={imageOffsetX}
                   imageOffsetY={imageOffsetY}

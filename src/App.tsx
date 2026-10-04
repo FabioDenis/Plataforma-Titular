@@ -9,7 +9,6 @@ import { HistoryDrawer } from './components/HistoryDrawer';
 import { BrandingModal } from './components/BrandingModal';
 import { IntegrationsModal } from './components/IntegrationsModal';
 import { IdentitySection } from './components/IdentitySection';
-import { SocialAccountsSection } from './components/SocialAccountsSection';
 import { AuthModal } from './components/AuthModal';
 import { BillingModal } from './components/BillingModal';
 import { AdminGenerationsModal } from './components/AdminGenerationsModal';
@@ -78,7 +77,7 @@ function MainAppContent() {
     return 'org-tu-medio';
   });
 
-  const [activeView, setActiveView] = useState<'generator' | 'identity' | 'social'>('generator');
+  const [activeView, setActiveView] = useState<'generator' | 'identity'>('generator');
 
   const [history, setHistory] = useState<GeneratedNewsResult[]>(() => {
     try {
@@ -397,7 +396,7 @@ function MainAppContent() {
                 {/* Extracted Clean Article Card */}
                 <ExtractedArticleCard article={currentArticle} />
 
-                {/* Visual Social Media Card Previews */}
+                {/* Visual Social Media Card Previews (editor + manual social handoff) */}
                 <VisualCardPreview
                   posts={currentPosts}
                   article={currentArticle}
@@ -429,12 +428,8 @@ function MainAppContent() {
           </main>
         )}
 
-        {/* View 3: Official Social Media Accounts (Meta Graph API) */}
-        {activeView === 'social' && (
-          <main className="animate-fade-in">
-            <SocialAccountsSection />
-          </main>
-        )}
+        {/* View 3: Official Social Media Accounts (Meta Graph API) — disabled for now:
+            publishing is manual (download image + copy caption/hashtags). */}
       </div>
 
       {/* Footer */}
@@ -471,7 +466,6 @@ function MainAppContent() {
           setActiveView('generator');
           handleProcessUrl(url);
         }}
-        onOpenSocial={() => setActiveView('social')}
       />
 
       <AuthModal

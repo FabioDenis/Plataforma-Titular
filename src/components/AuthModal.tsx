@@ -82,7 +82,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
             {isRegister ? <UserPlus className="h-6 w-6" /> : <LogIn className="h-6 w-6" />}
           </div>
           <h2 className="text-xl font-bold text-brand-ink">
-            {isRegister ? 'Crear Cuenta en NewsFlow AI' : 'Iniciar Sesión'}
+            {isRegister ? 'Crear Cuenta en Titular' : 'Iniciar Sesión'}
           </h2>
           <p className="mt-1 text-xs text-brand-navy/60">
             {isRegister

@@ -71,7 +71,7 @@ export const BillingModal: React.FC<BillingModalProps> = ({ isOpen, onClose, bil
   };
 
   const handleWhatsAppContact = () => {
-    const text = "Hola Luciano. Ya utilicé las 3 publicaciones gratuitas de Hermes y quiero conocer los planes disponibles.";
+    const text = "Hola Luciano. Ya utilicé las 3 publicaciones gratuitas de Titular y quiero conocer los planes disponibles.";
     const url = `https://wa.me/${SUPPORT_WHATSAPP_NUMBER}?text=${encodeURIComponent(text)}`;
     window.open(url, '_blank');
   };
@@ -144,7 +144,7 @@ export const BillingModal: React.FC<BillingModalProps> = ({ isOpen, onClose, bil
                     <span>🎉 Tu prueba gratuita ya está activa.</span>
                   </h4>
                   <p className="text-xs text-brand-navy/80 mt-0.5">
-                    Generá hasta {DEFAULT_TRIAL_PUBLICATION_LIMIT} publicaciones para conocer Hermes y automatizar tus redes periodísticas.
+                    Generá hasta {DEFAULT_TRIAL_PUBLICATION_LIMIT} publicaciones para conocer Titular y automatizar tus redes periodísticas.
                   </p>
                 </div>
               </div>
@@ -222,7 +222,7 @@ export const BillingModal: React.FC<BillingModalProps> = ({ isOpen, onClose, bil
                 Has utilizado todas las publicaciones incluidas en tu prueba gratuita.
               </h3>
               <p className="text-sm text-brand-navy/80 leading-relaxed font-medium">
-                Si querés seguir utilizando Hermes para generar contenido para tus redes sociales, escribime y te cuento los planes disponibles.
+                Si querés seguir utilizando Titular para generar contenido para tus redes sociales, escribime y te cuento los planes disponibles.
               </p>
             </div>
 

@@ -1606,6 +1606,7 @@ Nivel de Formalidad: ${editorialDNA?.formalityLevel || 'Alta'}
 Promedio de Párrafos: ${editorialDNA?.averageParagraphs || 2}
 Uso de Emojis: ${editorialDNA?.emojiUsage || 'Moderado'}
 Estilo de Hashtags: ${editorialDNA?.hashtagStyle || 'Directos'}
+Llamado a la Acción (CTA): ${editorialDNA?.callToAction || '(sin definir)'}
 ` : ''}
 
 REGLAS STRICTAS DE PERIODISMO Y EDICIÓN:
@@ -1626,6 +1627,7 @@ REGLAS DE FORMATO Y CONTENIDO:
 • "instagram.caption": Redactado con el tono "${editorialDNA?.tone || 'Periodístico'}".
 • "facebook.caption": Más desarrollado e informativo.
 • "linkedin.caption": Tono profesional.
+${editorialDNA?.callToAction ? `• CIERRE OBLIGATORIO DE CAPTION: todos los captions (Instagram, Facebook, LinkedIn) DEBEN finalizar con el llamado a la acción exacto: "${editorialDNA.callToAction}".` : ''}
 • "hashtags": Generar entre 3 y 6 hashtags directamente relevantes.
 • "keywords": Extraer 4 a 8 palabras clave.
 • "priority": Clasificar la urgencia como: "Alta", "Media" o "Baja".
@@ -1745,7 +1747,7 @@ ${article.content}
 
     // Health route
     app.get('/api/health', (req, res) => {
-      res.json({ status: 'ok', app: 'NewsFlow AI', timestamp: new Date().toISOString() });
+      res.json({ status: 'ok', app: 'Titular', timestamp: new Date().toISOString() });
     });
 
     // Serve Vite in development mode or Static files in production
@@ -1798,7 +1800,7 @@ async function startServer() {
   const app = await createApp();
   const port = getOptionalNumberEnv('PORT', 8080);
   app.listen(port, '0.0.0.0', () => {
-    console.log(`NewsFlow AI server listening on http://0.0.0.0:${port} (PORT env: ${process.env.PORT || 'default 8080'})`);
+    console.log(`Titular server listening on http://0.0.0.0:${port} (PORT env: ${process.env.PORT || 'default 8080'})`);
   });
 }
 

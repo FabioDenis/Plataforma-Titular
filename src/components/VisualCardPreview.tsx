@@ -10,6 +10,10 @@ import {
   Upload,
   CheckCircle2,
   Smartphone,
+  Instagram,
+  Facebook,
+  Send,
+  ChevronDown,
 } from 'lucide-react';
 import {
   SocialPostsOutput,
@@ -196,19 +200,17 @@ export const VisualCardPreview: React.FC<VisualCardPreviewProps> = ({
     setFallbackNotice(null);
 
     try {
-      const targetWidth = currentFormatConfig.width;
-      const targetHeight = currentFormatConfig.height;
+      const dataUrl = await exportCurrentCard();
 
-      const dataUrl = await exportCardToExactPng({
-        cardElement: cardRef.current,
-        targetWidth,
-        targetHeight,
-      });
+      if (!dataUrl) {
+        setFallbackNotice('Hubo un inconveniente al exportar la imagen. Intenta nuevamente.');
+        return;
+      }
 
       const mediaNameClean = (activeIdentity?.name || branding.name || 'Noticia').replace(/\s+/g, '-');
       const formatTag = currentFormatConfig.shortName.replace(/\s+/g, '-');
       const link = document.createElement('a');
-      link.download = `Hermes-${mediaNameClean}-${formatTag}-${Date.now()}.png`;
+      link.download = `Titular-${mediaNameClean}-${formatTag}-${Date.now()}.png`;
       link.href = dataUrl;
       link.click();
 
@@ -223,8 +225,136 @@ export const VisualCardPreview: React.FC<VisualCardPreviewProps> = ({
     }
   };
 
+  // Export the currently rendered card at its exact format resolution. Shared by the
+  // download button, the social handoff and the direct publish modal.
+  const exportCurrentCard = async (): Promise<string | null> => {
+    if (!cardRef.current) return null;
+
+    try {
+      return await exportCardToExactPng({
+        cardElement: cardRef.current,
+        targetWidth: currentFormatConfig.width,
+        targetHeight: currentFormatConfig.height,
+      });
+    } catch (err: any) {
+      console.error('Error exporting current card:', err);
+      return null;
+    }
+  };
+
+  // ============================================================
+  // SOCIAL HANDOFF (Instagram / Facebook)
+  // Desktop: download PNG + copy caption + open the platform.
+  // Mobile: native share sheet with the file pre-attached when available.
+  // ============================================================
+  const [handoffBusy, setHandoffBusy] = useState<'instagram' | 'facebook' | null>(null);
+  const [handoffStatus, setHandoffStatus] = useState<
+    { platform: 'instagram' | 'facebook'; shared: boolean; imageOk: boolean; captionOk: boolean } | null
+  >(null);
+  const [handoffWarning, setHandoffWarning] = useState<string | null>(null);
+  const [showPublishMenu, setShowPublishMenu] = useState(false);
+
+  const formatLabel =
+    selectedFormat === 'instagram-story'
+      ? 'Story 9:16'
+      : selectedFormat === 'facebook-feed'
+        ? 'Feed FB 4:5'
+        : selectedFormat === 'square-post'
+          ? 'Cuadrado 1:1'
+          : 'Feed IG 4:5';
+
+  const isMobileDevice = () => /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
+
+  const handleHandoff = async (platform: 'instagram' | 'facebook') => {
+    setHandoffBusy(platform);
+    setHandoffWarning(null);
+    setHandoffStatus(null);
+
+    const baseCaption =
+      (platform === 'instagram' ? posts.instagram?.caption : posts.facebook?.caption) ||
+      posts.feed?.headline ||
+      article.title ||
+      '';
+    // The editorial CTA must always close the caption (skip when the AI already appended it).
+    const ctaText = activeIdentity?.editorial?.callToAction?.trim();
+    const caption = ctaText && !baseCaption.includes(ctaText) ? `${baseCaption}\n\n${ctaText}` : baseCaption;
+
+    const formatTag = currentFormatConfig.shortName.replace(/\s+/g, '-');
+    let imageOk = false;
+    let captionOk = false;
+    let shared = false;
+
+    try {
+      const dataUrl = await exportCurrentCard();
+
+      // Mobile: try the native share sheet so the composer opens with the image attached.
+      if (dataUrl && isMobileDevice() && typeof navigator.canShare === 'function') {
+        try {
+          const blob = await (await fetch(dataUrl)).blob();
+          const file = new File([blob], `Titular-${platform}-${formatTag}.png`, { type: 'image/png' });
+          if (navigator.canShare({ files: [file] })) {
+            await navigator.share({ files: [file], text: caption });
+            imageOk = true;
+            captionOk = true;
+            shared = true;
+          }
+        } catch (shareErr: any) {
+          if (shareErr?.name === 'AbortError') {
+            setHandoffBusy(null);
+            return; // user closed the share sheet; nothing else to do
+          }
+          console.warn('[Handoff] Web Share failed, falling back to download:', shareErr);
+        }
+      }
+
+      // Desktop fallback: download + caption to clipboard + open the platform.
+      if (!shared && dataUrl) {
+        const link = document.createElement('a');
+        link.download = `Titular-${platform}-${formatTag}-${Date.now()}.png`;
+        link.href = dataUrl;
+        link.click();
+        imageOk = true;
+      }
+
+      if (!shared && caption) {
+        try {
+          await navigator.clipboard.writeText(caption);
+          captionOk = true;
+        } catch (err) {
+          console.warn('[Handoff] Clipboard write failed:', err);
+        }
+      }
+
+      if (!shared) {
+        const targetUrl =
+          platform === 'instagram'
+            ? isMobileDevice() && selectedFormat === 'instagram-story'
+              ? 'instagram://story-camera'
+              : 'https://www.instagram.com/'
+            : 'https://www.facebook.com/';
+        window.open(targetUrl, '_blank', 'noopener,noreferrer');
+      }
+
+      setHandoffStatus({ platform, shared, imageOk, captionOk });
+      if (!shared && (!imageOk || !captionOk)) {
+        setHandoffWarning(
+          !imageOk && !captionOk
+            ? 'No se pudo exportar la imagen ni copiar el caption. Usá el botón "Descargar PNG" y copiá el texto manualmente.'
+            : !imageOk
+              ? 'El caption fue copiado, pero la imagen no se pudo exportar. Usá el botón "Descargar PNG".'
+              : 'La imagen fue descargada, pero el caption no se pudo copiar. Cópialo desde la pestaña de la red.'
+        );
+      }
+    } catch (err: any) {
+      console.error('[Handoff] Unexpected error:', err);
+      setHandoffWarning('Hubo un inconveniente preparando la publicación. Intenta nuevamente.');
+    } finally {
+      setHandoffBusy(null);
+    }
+  };
+
   // Media info
-  const mediaName = activeIdentity?.name || branding.name || 'HERMES PUBLICA';
+  const mediaName = activeIdentity?.name || branding.name || 'TITULAR';
   const mediaLogo = customLogoUrl || activeIdentity?.logoUrl || branding.logoUrl || '';
   const mediaWebsite = activeIdentity?.websiteUrl
     ? activeIdentity.websiteUrl.toUpperCase().replace(/^HTTPS?:\/\//, '').replace(/^WWW\./, '')
@@ -255,27 +385,121 @@ export const VisualCardPreview: React.FC<VisualCardPreviewProps> = ({
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="relative flex items-center gap-2">
+          {/* Single entry point for publishing: menu with the destinations */}
+          <button
+            onClick={() => setShowPublishMenu((v) => !v)}
+            disabled={handoffBusy !== null}
+            className="flex items-center gap-2 rounded-lg bg-brand-primary px-5 py-2.5 text-xs font-bold text-brand-ink shadow-none hover:bg-brand-primary-hover transition-all disabled:opacity-50 cursor-pointer"
+          >
+            {handoffBusy ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            <span>{handoffBusy ? 'Preparando…' : 'Publicar'}</span>
+            <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showPublishMenu ? 'rotate-180' : ''}`} />
+          </button>
+
           <button
             onClick={handleDownloadPNG}
             disabled={isDownloading}
-            className="flex items-center gap-2 rounded-lg bg-brand-primary px-5 py-2.5 text-xs font-bold text-brand-ink shadow-none hover:bg-brand-primary-hover transition-all disabled:opacity-50 shrink-0 cursor-pointer"
+            title={`Descargar PNG (${currentFormatConfig.width}x${currentFormatConfig.height})`}
+            className="flex items-center justify-center rounded-lg border border-brand-navy/20 bg-white p-2.5 text-brand-navy hover:bg-brand-navy/5 transition-all disabled:opacity-50 cursor-pointer"
           >
             {isDownloading ? (
               <RefreshCw className="h-4 w-4 animate-spin" />
             ) : downloadSuccess ? (
-              <Check className="h-4 w-4 text-brand-ink" />
+              <Check className="h-4 w-4 text-emerald-600" />
             ) : (
               <Download className="h-4 w-4" />
             )}
-            <span>
-              {downloadSuccess
-                ? '¡Descargado!'
-                : `Descargar PNG (${currentFormatConfig.width}x${currentFormatConfig.height})`}
-            </span>
           </button>
+
+          {showPublishMenu && (
+            <>
+              {/* Click-away layer */}
+              <div className="fixed inset-0 z-30" onClick={() => setShowPublishMenu(false)} />
+
+              <div className="absolute right-0 top-full z-40 mt-2 w-72 rounded-xl border border-brand-navy/15 bg-white p-2 shadow-xl sm:w-80">
+                <div className="flex items-center justify-between px-2 pb-2 pt-1">
+                  <span className="text-[11px] font-bold uppercase tracking-wide text-brand-navy/50">
+                    ¿Dónde publicás?
+                  </span>
+                  <span className="rounded bg-brand-navy/5 px-2 py-0.5 text-[10px] font-semibold text-brand-navy/70">
+                    {formatLabel}
+                  </span>
+                </div>
+
+                <button
+                  onClick={() => {
+                    setShowPublishMenu(false);
+                    handleHandoff('instagram');
+                  }}
+                  disabled={handoffBusy !== null}
+                  className="flex w-full items-center gap-3 rounded-lg px-2 py-2.5 text-left transition-colors hover:bg-fuchsia-50 disabled:opacity-50 cursor-pointer"
+                >
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-fuchsia-50 text-fuchsia-600">
+                    <Instagram className="h-4 w-4" />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-xs font-bold text-brand-ink">Instagram</span>
+                    <span className="block text-[11px] text-brand-navy/60">
+                      Descarga la imagen y abre Instagram con el texto copiado
+                    </span>
+                  </span>
+                  {handoffBusy === 'instagram' && (
+                    <RefreshCw className="ml-auto h-3.5 w-3.5 shrink-0 animate-spin text-brand-navy/50" />
+                  )}
+                </button>
+
+                <button
+                  onClick={() => {
+                    setShowPublishMenu(false);
+                    handleHandoff('facebook');
+                  }}
+                  disabled={handoffBusy !== null}
+                  className="flex w-full items-center gap-3 rounded-lg px-2 py-2.5 text-left transition-colors hover:bg-blue-50 disabled:opacity-50 cursor-pointer"
+                >
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+                    <Facebook className="h-4 w-4" />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-xs font-bold text-brand-ink">Facebook</span>
+                    <span className="block text-[11px] text-brand-navy/60">
+                      Descarga la imagen y abre Facebook con el texto copiado
+                    </span>
+                  </span>
+                  {handoffBusy === 'facebook' && (
+                    <RefreshCw className="ml-auto h-3.5 w-3.5 shrink-0 animate-spin text-brand-navy/50" />
+                  )}
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </div>
+
+      {/* Handoff result feedback */}
+      {handoffStatus && !handoffWarning && (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+          {handoffStatus.shared ? (
+            <>
+              <strong>{handoffStatus.platform === 'instagram' ? 'Instagram' : 'Facebook'}</strong> abrió su editor con la
+              imagen ya cargada. Revisá y compartí.
+            </>
+          ) : (
+            <>
+              Imagen descargada{handoffStatus.captionOk ? ' y caption copiado' : ''}.{' '}
+              <strong>{handoffStatus.platform === 'instagram' ? 'Instagram' : 'Facebook'}</strong> se abrió en una pestaña
+              nueva: adjuntá el archivo descargado y pegá el texto (Ctrl+V).
+            </>
+          )}
+        </div>
+      )}
+
+      {handoffWarning && (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+          <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>{handoffWarning}</span>
+        </div>
+      )}
 
       {fallbackNotice && (
         <div className="rounded-lg border border-amber-300 bg-amber-100 p-3.5 text-xs font-medium text-amber-800 shadow-none flex items-center justify-between gap-3">
@@ -391,6 +615,7 @@ export const VisualCardPreview: React.FC<VisualCardPreviewProps> = ({
                   logoUrl={mediaLogo}
                   mediaName={mediaName}
                   websiteText={mediaWebsite}
+                  callToAction={activeIdentity?.editorial?.callToAction}
                   imageZoom={imageZoom}
                   imageOffsetX={imageOffsetX}
                   imageOffsetY={imageOffsetY}

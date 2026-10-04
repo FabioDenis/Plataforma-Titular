@@ -3,7 +3,6 @@ import {
   Building2,
   Upload,
   CheckCircle2,
-  Palette,
   FileText,
   ShieldCheck,
   Globe,
@@ -52,7 +51,7 @@ export const IdentitySection: React.FC<IdentitySectionProps> = ({
     allIdentities.find((i) => i.id === activeIdentityId) ||
     allIdentities[0];
 
-  const [activeTab, setActiveTab] = useState<'profile' | 'logo' | 'visual' | 'editorial' | 'templates'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'logo' | 'editorial' | 'templates'>('profile');
   const [notification, setNotification] = useState<string | null>(null);
 
   // Custom Templates State
@@ -221,19 +220,6 @@ export const IdentitySection: React.FC<IdentitySectionProps> = ({
 
           <button
             type="button"
-            onClick={() => setActiveTab('visual')}
-            className={`flex items-center gap-1.5 pb-2 px-3 border-b-2 transition-colors cursor-pointer whitespace-nowrap ${
-              activeTab === 'visual'
-                ? 'border-brand-primary text-brand-ink font-medium'
-                : 'border-transparent text-brand-navy/60 hover:text-brand-navy'
-            }`}
-          >
-            <Palette className="h-3.5 w-3.5" />
-            <span>Colores y Estilo</span>
-          </button>
-
-          <button
-            type="button"
             onClick={() => setActiveTab('editorial')}
             className={`flex items-center gap-1.5 pb-2 px-3 border-b-2 transition-colors cursor-pointer whitespace-nowrap ${
               activeTab === 'editorial'
@@ -351,67 +337,6 @@ export const IdentitySection: React.FC<IdentitySectionProps> = ({
               <p className="text-xs text-brand-navy/60 leading-relaxed font-normal">
                 Recomendación: Archivo en formato PNG con fondo transparente en alta definición.
               </p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* TAB 3: COLORS & VISUAL STYLE */}
-      {activeTab === 'visual' && (
-        <div className="rounded-lg border border-brand-navy/15 bg-white p-4 sm:p-5 space-y-4 shadow-sm">
-          <div className="pb-2 border-b border-brand-navy/10">
-            <h3 className="text-xs font-semibold text-brand-ink">Paleta de Colores y Tipografía</h3>
-            <p className="text-xs text-brand-navy/60 mt-0.5 font-normal">
-              Ajuste los colores institucionales y tipografías asignadas a su organización.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 text-xs">
-            <div>
-              <label className="block text-brand-navy/80 font-medium mb-1">Color Primario:</label>
-              <div className="flex items-center gap-2.5">
-                <input
-                  type="color"
-                  value={currentIdentity.visual.primaryColor}
-                  onChange={(e) =>
-                    onUpdateIdentity({
-                      ...currentIdentity,
-                      visual: { ...currentIdentity.visual, primaryColor: e.target.value },
-                    })
-                  }
-                  className="h-8 w-10 rounded bg-transparent cursor-pointer border-0"
-                />
-                <input
-                  type="text"
-                  value={currentIdentity.visual.primaryColor}
-                  onChange={(e) =>
-                    onUpdateIdentity({
-                      ...currentIdentity,
-                      visual: { ...currentIdentity.visual, primaryColor: e.target.value },
-                    })
-                  }
-                  className="w-full rounded-md border border-brand-navy/20 bg-brand-navy/5 px-3 py-2 text-brand-ink font-mono focus:border-brand-primary focus:outline-none"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-brand-navy/80 font-medium mb-1">Familia Tipográfica:</label>
-              <select
-                value={currentIdentity.visual.fontFamily}
-                onChange={(e) =>
-                  onUpdateIdentity({
-                    ...currentIdentity,
-                    visual: { ...currentIdentity.visual, fontFamily: e.target.value },
-                  })
-                }
-                className="w-full rounded-md border border-brand-navy/20 bg-brand-navy/5 px-3 py-2 text-brand-ink font-normal focus:border-brand-primary focus:outline-none"
-              >
-                <option value="Montserrat, sans-serif">Montserrat (Corporativo / Editorial)</option>
-                <option value="Plus Jakarta Sans, sans-serif">Plus Jakarta Sans (Moderno / Limpio)</option>
-                <option value="Inter, sans-serif">Inter (Institucional neutral)</option>
-                <option value="Playfair Display, serif">Playfair Display (Serif Elegante)</option>
-              </select>
             </div>
           </div>
         </div>

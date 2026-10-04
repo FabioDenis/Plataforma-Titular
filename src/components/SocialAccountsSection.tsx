@@ -313,7 +313,7 @@ export const SocialAccountsSection: React.FC = () => {
             <div>
               <p className="text-xs font-bold text-brand-ink">Estado de Vinculación</p>
               <p className="text-[11px] text-brand-navy/60">
-                Las cuentas oficiales están sincronizadas con Hermes para esta institución.
+                Las cuentas oficiales están sincronizadas con Titular para esta institución.
               </p>
             </div>
           </div>
@@ -361,7 +361,7 @@ export const SocialAccountsSection: React.FC = () => {
               ¿Desconectar redes sociales oficiales?
             </h3>
             <p className="text-xs text-brand-navy/60 leading-relaxed">
-              Hermes desvinculará la Página de Facebook y la cuenta de Instagram de <strong className="text-brand-ink">{orgName}</strong>. Podrás volver a conectarlas en cualquier momento.
+              Titular desvinculará la Página de Facebook y la cuenta de Instagram de <strong className="text-brand-ink">{orgName}</strong>. Podrás volver a conectarlas en cualquier momento.
             </p>
             <div className="flex items-center justify-end gap-2 pt-2">
               <button

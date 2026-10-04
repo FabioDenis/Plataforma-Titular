@@ -36,6 +36,8 @@ interface PublishSectionProps {
   branding: OutletBranding;
   activeFormat?: 'feed' | 'story';
   renderedCardDataUrl?: string | null;
+  /** Lazily exports the rendered card PNG at publish time; preferred over renderedCardDataUrl. */
+  resolveCardImage?: () => Promise<string | null | undefined>;
   onOpenSocialSettings?: () => void;
 }
 
@@ -45,6 +47,7 @@ export const PublishSection: React.FC<PublishSectionProps> = ({
   branding,
   activeFormat = 'feed',
   renderedCardDataUrl,
+  resolveCardImage,
   onOpenSocialSettings,
 }) => {
   const { user } = useAuth();
@@ -129,8 +132,14 @@ export const PublishSection: React.FC<PublishSectionProps> = ({
     setLifecycleStatus('PUBLICANDO');
 
     try {
-      // Effective image to send
-      const effectiveImage =
+      // Effective image to send: freshly rendered card first, then pre-rendered prop,
+      // then the article's main image, then a neutral default.
+      let effectiveImage: string | null | undefined = null;
+      if (resolveCardImage) {
+        effectiveImage = await resolveCardImage();
+      }
+      effectiveImage =
+        effectiveImage ||
         renderedCardDataUrl ||
         article.mainImage ||
         'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?auto=format&fit=crop&w=1200&q=80';

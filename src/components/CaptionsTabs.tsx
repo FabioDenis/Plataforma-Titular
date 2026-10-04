@@ -41,7 +41,12 @@ export const CaptionsTabs: React.FC<CaptionsTabsProps> = ({ posts }) => {
   };
 
   const handleCopy = () => {
-    const textToCopy = getCurrentCaption();
+    const caption = getCurrentCaption();
+    // Manual upload flow: copy caption + hashtags together (skip if already present).
+    const hashtagLine = posts.hashtags?.length
+      ? posts.hashtags.map((tag) => (tag.startsWith('#') ? tag : `#${tag}`)).join(' ')
+      : '';
+    const textToCopy = hashtagLine && !caption.includes(hashtagLine) ? `${caption}\n\n${hashtagLine}` : caption;
     navigator.clipboard.writeText(textToCopy);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -142,7 +147,7 @@ export const CaptionsTabs: React.FC<CaptionsTabsProps> = ({ posts }) => {
               ) : (
                 <>
                   <Copy className="h-4 w-4" />
-                  <span>Copiar Texto ({activePlatform.toUpperCase()})</span>
+                  <span>Copiar Texto y Hashtags ({activePlatform.toUpperCase()})</span>
                 </>
               )}
             </button>

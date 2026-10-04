@@ -1,5 +1,5 @@
 {
-  "name": "NewsFlow AI",
+  "name": "Titular",
   "description": "Software editorial para redacciones y medios de comunicación que transforma noticias en publicaciones optimizadas para redes sociales respetando su identidad visual.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

@@ -89,7 +89,7 @@ export const UrlForm: React.FC<UrlFormProps> = ({
             {' '}publicar <span className="text-brand-primary">noticias</span> en redes sociales
           </h1>
           <p className="text-sm sm:text-lg text-brand-navy/70 font-normal leading-relaxed max-w-3xl">
-            Hermes convierte artículos periodísticos en publicaciones listas para compartir, manteniendo la identidad de tu medio.
+            Titular convierte artículos periodísticos en publicaciones listas para compartir, manteniendo la identidad de tu medio.
           </p>
         </div>
 

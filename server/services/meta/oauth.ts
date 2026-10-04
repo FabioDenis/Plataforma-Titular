@@ -158,7 +158,7 @@ export async function handleMetaCallback(
   const rawPages: any[] = pagesData.data || [];
   if (rawPages.length === 0) {
     throw new MetaServiceError(
-      'No se encontró ninguna Página de Facebook administrada por esta cuenta de Meta. Para vincular Hermes debes ser administrador de al menos una Página de Facebook.',
+      'No se encontró ninguna Página de Facebook administrada por esta cuenta de Meta. Para vincular Titular debes ser administrador de al menos una Página de Facebook.',
       'NO_PAGES_FOUND'
     );
   }

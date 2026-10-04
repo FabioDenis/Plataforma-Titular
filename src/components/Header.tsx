@@ -8,8 +8,8 @@ import { useOrganization } from '../hooks/useOrganization';
 interface HeaderProps {
   branding: OutletBranding;
   activeIdentity?: OrganizationIdentity;
-  activeView: 'generator' | 'identity' | 'social';
-  onChangeView: (view: 'generator' | 'identity' | 'social') => void;
+  activeView: 'generator' | 'identity';
+  onChangeView: (view: 'generator' | 'identity') => void;
   onOpenBranding: () => void;
   onOpenHistory: () => void;
   onOpenIntegrations: () => void;
@@ -93,18 +93,6 @@ export const Header: React.FC<HeaderProps> = ({
               }`}
             >
               Identidad
-            </button>
-
-            <button
-              type="button"
-              onClick={() => onChangeView('social')}
-              className={`px-3.5 py-2 text-sm font-medium rounded-md transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
-                activeView === 'social'
-                  ? 'text-brand-navy bg-brand-primary-soft font-semibold'
-                  : 'text-brand-navy/70 hover:text-brand-navy hover:bg-brand-navy/5'
-              }`}
-            >
-              Redes sociales
             </button>
 
             {isAdmin && onOpenAdmin && (

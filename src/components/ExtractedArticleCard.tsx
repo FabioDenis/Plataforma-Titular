@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Newspaper, Calendar, User, FileText, ChevronDown, ChevronUp, ExternalLink, ShieldCheck } from 'lucide-react';
+import { Newspaper, Calendar, User, FileText, ChevronDown, ChevronUp, ExternalLink } from 'lucide-react';
 import { NewsArticleData } from '../types';
 
 interface ExtractedArticleCardProps {
@@ -84,10 +84,6 @@ export const ExtractedArticleCard: React.FC<ExtractedArticleCardProps> = ({ arti
               <span className="flex items-center gap-1 rounded-md bg-brand-navy/5 px-2.5 py-1 text-brand-navy/80 border border-brand-navy/15 font-medium">
                 <FileText className="h-3.5 w-3.5 text-brand-navy/60" />
                 {wordCount} palabras (~{readTime} min lectura)
-              </span>
-              <span className="flex items-center gap-1 text-emerald-600 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-md font-medium">
-                <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
-                Publicidad y scripts eliminados
               </span>
             </div>
 
