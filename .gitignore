@@ -27,3 +27,4 @@ credentials.json
 .pi/
 .codegraph/
 .media_cache/
+.firebase/
