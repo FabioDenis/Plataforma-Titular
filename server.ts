@@ -56,6 +56,9 @@ import {
 import {
   acceptPendingInvites,
   addOrganizationMember,
+  createManagedOrganization,
+  enterOrganizationAsAdmin,
+  exitOrganizationAsAdmin,
   listOrganizationMembers,
   MembershipError,
   removeOrganizationMember,
@@ -489,6 +492,7 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
 
     const membershipErrorResponses: Record<string, [number, string]> = {
       INVALID_EMAIL: [400, 'Ingresá un email válido.'],
+      INVALID_NAME: [400, 'Ingresá el nombre del medio (hasta 120 caracteres).'],
       ORGANIZATION_NOT_FOUND: [404, 'El medio no existe.'],
       ALREADY_OWNER: [409, 'Esa cuenta ya es la dueña de este medio.'],
       OWNER_CANNOT_BE_REMOVED: [409, 'No se puede quitar a la cuenta dueña del medio.'],
@@ -509,6 +513,37 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
       if (!isAdmin) res.status(403).json({ error: 'Acceso denegado: se requieren permisos de administrador.' });
       return isAdmin;
     }
+
+    // API Routes: Newsrooms prepared by the platform admin before handing them to a client
+    app.post('/api/admin/organizations', verifyFirebaseAuth as any, async (req: AuthenticatedRequest, res) => {
+      try {
+        if (!(await requirePlatformAdmin(req, res))) return;
+        const organizationId = await createManagedOrganization({ name: req.body?.name, adminUid: req.user!.uid });
+        return res.json({ organizationId });
+      } catch (err) {
+        return sendMembershipError(res, err, 'Error al crear el medio.');
+      }
+    });
+
+    app.post('/api/admin/organizations/exit', verifyFirebaseAuth as any, async (req: AuthenticatedRequest, res) => {
+      try {
+        if (!(await requirePlatformAdmin(req, res))) return;
+        await exitOrganizationAsAdmin(req.user!.uid);
+        return res.json({ success: true });
+      } catch (err) {
+        return sendMembershipError(res, err, 'Error al volver a tu medio.');
+      }
+    });
+
+    app.post('/api/admin/organizations/:orgId/enter', verifyFirebaseAuth as any, async (req: AuthenticatedRequest, res) => {
+      try {
+        if (!(await requirePlatformAdmin(req, res))) return;
+        await enterOrganizationAsAdmin(req.user!.uid, req.params.orgId);
+        return res.json({ success: true });
+      } catch (err) {
+        return sendMembershipError(res, err, 'Error al abrir el medio.');
+      }
+    });
 
     // API Routes: Team members of an organization (platform admins only)
     app.get('/api/admin/organizations/:orgId/members', verifyFirebaseAuth as any, async (req: AuthenticatedRequest, res) => {

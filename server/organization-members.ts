@@ -1,5 +1,6 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { getAdminAuth, getAdminDb } from './firebase-admin';
+import { DEFAULT_TRIAL_PUBLICATION_LIMIT } from './billing';
 
 /**
  * Organization membership (team accounts).
@@ -12,6 +13,7 @@ import { getAdminAuth, getAdminDb } from './firebase-admin';
 
 export type MembershipErrorCode =
   | 'INVALID_EMAIL'
+  | 'INVALID_NAME'
   | 'ORGANIZATION_NOT_FOUND'
   | 'ALREADY_OWNER'
   | 'OWNER_CANNOT_BE_REMOVED'
@@ -204,4 +206,51 @@ export async function acceptPendingInvites(identity: { uid: string; email: strin
     throw error;
   }
   return orgId;
+}
+
+// ==========================================
+// Newsrooms managed by the platform admin
+// ==========================================
+
+/**
+ * Creates a newsroom without an owner so the platform admin can prepare its identity and templates
+ * before adding the client's accounts as members.
+ */
+export async function createManagedOrganization(input: { name: unknown; adminUid: string }): Promise<string> {
+  const name = typeof input.name === 'string' ? input.name.trim() : '';
+  if (!name || name.length > 120) throw new MembershipError('INVALID_NAME');
+
+  const ref = getAdminDb().collection('organizations').doc();
+  await ref.set({
+    name,
+    ownerUid: '',
+    members: [],
+    plan: 'trial',
+    publicationLimit: DEFAULT_TRIAL_PUBLICATION_LIMIT,
+    publicationUsed: 0,
+    status: 'Activa',
+    orgType: 'Medio Digital',
+    createdAt: new Date().toISOString(),
+    createdByAdminUid: input.adminUid,
+  });
+  return ref.id;
+}
+
+/**
+ * Points the admin's session at a client newsroom so the regular app screens edit it.
+ * The admin does not become a member: access comes from the platform-admin rules.
+ */
+export async function enterOrganizationAsAdmin(adminUid: string, orgId: string): Promise<void> {
+  await requireOrganization(orgId);
+  await getAdminDb().doc(`users/${adminUid}`).set({ organizationId: orgId }, { merge: true });
+}
+
+/** Returns the admin's session to the organization they own (or to the default one on next sign-in). */
+export async function exitOrganizationAsAdmin(adminUid: string): Promise<void> {
+  const db = getAdminDb();
+  const owned = await db.collection('organizations').where('ownerUid', '==', adminUid).limit(1).get();
+  await db.doc(`users/${adminUid}`).set(
+    { organizationId: owned.empty ? FieldValue.delete() : owned.docs[0].id },
+    { merge: true }
+  );
 }

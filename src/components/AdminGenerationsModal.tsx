@@ -15,6 +15,7 @@ import {
   ArrowRight,
   Sparkles,
   User,
+  Palette,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useOrganization } from '../context/OrganizationContext';
@@ -24,9 +25,11 @@ import { OrganizationMembersPanel } from './OrganizationMembersPanel';
 interface AdminGenerationsModalProps {
   isOpen: boolean;
   onClose: () => void;
+  /** Called after the admin opened a client newsroom, to show its identity and template screens. */
+  onOpenOrganization?: () => void;
 }
 
-export const AdminGenerationsModal: React.FC<AdminGenerationsModalProps> = ({ isOpen, onClose }) => {
+export const AdminGenerationsModal: React.FC<AdminGenerationsModalProps> = ({ isOpen, onClose, onOpenOrganization }) => {
   const { authFetch, refreshBillingProfile, user: currentUser } = useAuth();
   const orgContext = useOrganization();
 
@@ -50,6 +53,11 @@ export const AdminGenerationsModal: React.FC<AdminGenerationsModalProps> = ({ is
 
   // Toggle Admin State
   const [togglingAdmin, setTogglingAdmin] = useState<boolean>(false);
+
+  // Newsrooms prepared by the admin
+  const [newOrgName, setNewOrgName] = useState<string>('');
+  const [creatingOrg, setCreatingOrg] = useState<boolean>(false);
+  const [openingOrg, setOpeningOrg] = useState<boolean>(false);
 
   // Fetch all users
   const fetchUsers = useCallback(async (isSilent = false) => {
@@ -220,6 +228,48 @@ export const AdminGenerationsModal: React.FC<AdminGenerationsModalProps> = ({ is
   };
 
   // Handle Toggle Admin
+  const handleCreateOrganization = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const name = newOrgName.trim();
+    if (!name) return;
+    try {
+      setCreatingOrg(true);
+      setError(null);
+      setSuccessMessage(null);
+      const res = await authFetch('/api/admin/organizations', { method: 'POST', body: JSON.stringify({ name }) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'No se pudo crear el medio.');
+      setNewOrgName('');
+      await fetchUsers(true);
+      // Newsrooms without an owner are listed under their organization id.
+      setSelectedUserId(data.organizationId);
+      setSuccessMessage(`Medio "${name}" creado. Cargá su identidad y plantillas, y después sumá los correos del cliente.`);
+    } catch (err: any) {
+      setError(err.message || 'No se pudo crear el medio.');
+    } finally {
+      setCreatingOrg(false);
+    }
+  };
+
+  const handleOpenOrganization = async () => {
+    if (!selectedUser) return;
+    try {
+      setOpeningOrg(true);
+      setError(null);
+      const res = await authFetch(`/api/admin/organizations/${encodeURIComponent(selectedUser.organizationId)}/enter`, {
+        method: 'POST',
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'No se pudo abrir el medio.');
+      onClose();
+      onOpenOrganization?.();
+    } catch (err: any) {
+      setError(err.message || 'No se pudo abrir el medio.');
+    } finally {
+      setOpeningOrg(false);
+    }
+  };
+
   const handleToggleAdmin = async () => {
     if (!selectedUser) return;
     const targetIsAdmin = !selectedUser.isAdmin;
@@ -409,6 +459,28 @@ export const AdminGenerationsModal: React.FC<AdminGenerationsModalProps> = ({ is
               </div>
             </div>
 
+            {/* New newsroom prepared by the admin */}
+            <form onSubmit={handleCreateOrganization} className="flex gap-2 px-3 pb-3 border-b border-brand-navy/10">
+              <label htmlFor="admin-new-org-name" className="sr-only">Nombre del nuevo medio</label>
+              <input
+                id="admin-new-org-name"
+                type="text"
+                required
+                maxLength={120}
+                value={newOrgName}
+                onChange={(e) => setNewOrgName(e.target.value)}
+                placeholder="Nombre del nuevo medio"
+                className="min-w-0 flex-1 rounded-lg border border-brand-navy/15 bg-white px-3 py-2 text-xs text-brand-ink placeholder-brand-navy/40 focus:border-brand-primary focus:outline-none focus:ring-1 focus:ring-brand-primary/60"
+              />
+              <button
+                type="submit"
+                disabled={creatingOrg}
+                className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-brand-navy px-3 py-2 text-xs font-medium text-white hover:bg-brand-navy/90 disabled:opacity-50 cursor-pointer"
+              >
+                <Plus className="h-3.5 w-3.5" /> Crear medio
+              </button>
+            </form>
+
             {/* Users Scrollable List */}
             <div className="flex-1 overflow-y-auto p-2 space-y-1.5 custom-scrollbar">
               {loading ? (
@@ -507,8 +579,20 @@ export const AdminGenerationsModal: React.FC<AdminGenerationsModalProps> = ({ is
                       </p>
                     </div>
 
-                    {/* Admin Privileges Toggle */}
-                    <div className="flex items-center gap-2 shrink-0">
+                    {/* Newsroom editing + Admin Privileges Toggle */}
+                    <div className="flex flex-wrap items-center justify-end gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={handleOpenOrganization}
+                        disabled={openingOrg}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-brand-navy/20 bg-white text-brand-navy hover:bg-brand-navy/5 transition-colors cursor-pointer disabled:opacity-50"
+                        title="Abrir este medio para editar su identidad y plantillas"
+                      >
+                        <Palette className="h-3.5 w-3.5" />
+                        <span>Editar identidad y plantillas</span>
+                      </button>
+                      {/* Newsrooms created by the admin have no owner account to promote. */}
+                      {selectedUser.email && selectedUser.uid !== selectedUser.organizationId && (
                       <button
                         type="button"
                         onClick={handleToggleAdmin}
@@ -525,6 +609,7 @@ export const AdminGenerationsModal: React.FC<AdminGenerationsModalProps> = ({ is
                           {selectedUser.isAdmin ? 'Quitar rol Admin' : 'Hacer Administrador'}
                         </span>
                       </button>
+                      )}
                     </div>
                   </div>
 

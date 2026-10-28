@@ -15,6 +15,9 @@ const {
   listOrganizationMembers,
   acceptPendingInvites,
   MembershipError,
+  createManagedOrganization,
+  enterOrganizationAsAdmin,
+  exitOrganizationAsAdmin,
 } = await import('./organization-members');
 
 after(async () => {
@@ -179,4 +182,49 @@ test('a rejected owner removal leaves every document untouched', async () => {
   await assert.rejects(removeOrganizationMember({ orgId, email: owner.email }, directory(owner)), isCode('OWNER_CANNOT_BE_REMOVED'));
 
   assert.equal((await db.doc(`invites/${owner.email}`).get()).exists, true);
+});
+
+// --- Newsrooms managed by the platform admin ---
+
+test('an admin creates an ownerless newsroom with the trial balance and then adds the client accounts', async () => {
+  const orgId = await createManagedOrganization({ name: '  Radio Sol  ', adminUid: 'platform-admin' });
+  const db = getAdminDb();
+  const org = (await db.doc(`organizations/${orgId}`).get()).data()!;
+  assert.equal(org.name, 'Radio Sol');
+  assert.equal(org.ownerUid, '');
+  assert.deepEqual(org.members, []);
+  assert.equal(org.publicationLimit, 3);
+  assert.equal(org.publicationUsed, 0);
+  assert.equal(org.createdByAdminUid, 'platform-admin');
+
+  const reporter = account();
+  await addOrganizationMember({ orgId, email: reporter.email, invitedByUid: 'platform-admin' }, directory(reporter));
+  const result = await bootstrapAccount(reporter);
+  assert.equal(result.organization.id, orgId);
+  const listing = await listOrganizationMembers(orgId);
+  assert.equal(listing.owner, null);
+  assert.deepEqual(listing.members.map((m) => m.email), [reporter.email]);
+});
+
+test('a newsroom needs a name', async () => {
+  await assert.rejects(createManagedOrganization({ name: '   ', adminUid: 'platform-admin' }), isCode('INVALID_NAME'));
+});
+
+test('an admin enters a client newsroom to edit it and goes back to their own', async () => {
+  const admin = account();
+  const own = await bootstrapAccount(admin);
+  const client = await newsroom();
+  const db = getAdminDb();
+
+  await enterOrganizationAsAdmin(admin.uid, client.orgId);
+  assert.equal((await db.doc(`users/${admin.uid}`).get()).data()!.organizationId, client.orgId);
+  // Entering never makes the admin a member of the client newsroom.
+  assert.equal((await db.doc(`organizations/${client.orgId}`).get()).data()!.members, undefined);
+
+  await exitOrganizationAsAdmin(admin.uid);
+  assert.equal((await db.doc(`users/${admin.uid}`).get()).data()!.organizationId, own.organization.id);
+});
+
+test('entering a missing newsroom is rejected', async () => {
+  await assert.rejects(enterOrganizationAsAdmin('platform-admin', 'missing-org'), isCode('ORGANIZATION_NOT_FOUND'));
 });

@@ -55,7 +55,8 @@ service cloud.firestore {
       );
       allow list: if isOrgMember(resource.data) || isAdmin();
       allow create, delete: if false;
-      allow update: if isOrgMember(resource.data)
+      // Members edit their newsroom's presentation; platform admins can prepare any newsroom for a client.
+      allow update: if (isOrgMember(resource.data) || isAdmin())
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'name',
           'logoUrl',
@@ -69,11 +70,11 @@ service cloud.firestore {
 
       // Shared newsroom workspace: every member reads and edits the same identities and history.
       match /identities/{identityId} {
-        allow read, write: if canAccessOrgId(orgId);
+        allow read, write: if canAccessOrgId(orgId) || isAdmin();
       }
 
       match /history/{newsId} {
-        allow read, write: if canAccessOrgId(orgId);
+        allow read, write: if canAccessOrgId(orgId) || isAdmin();
       }
 
       match /privateMetaTokens/{tokenDoc} {

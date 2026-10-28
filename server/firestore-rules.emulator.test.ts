@@ -201,3 +201,13 @@ test('a missing organization id can only be probed for the user own default orga
   await assertSucceeds(getDoc(doc(as('erin'), 'organizations/org_erin')));
   await assertFails(getDoc(doc(as('erin'), 'organizations/org_ghost')));
 });
+
+test('a platform admin can edit any newsroom identity, templates and history, but not its balance', async () => {
+  await seed();
+  const db = as('admin');
+  await assertSucceeds(setDoc(doc(db, 'organizations/org_bob/identities/main'), { name: 'Bob Media' }));
+  await assertSucceeds(getDocs(collection(db, 'organizations/org_bob/identities')));
+  await assertSucceeds(getDocs(collection(db, 'organizations/org_bob/history')));
+  await assertSucceeds(updateDoc(doc(db, 'organizations/org_bob'), { name: 'Bob Media', activeIdentityId: 'main', activeOfficialTemplateId: 'tpl-1' }));
+  await assertFails(updateDoc(doc(db, 'organizations/org_bob'), { publicationLimit: 999 }));
+});

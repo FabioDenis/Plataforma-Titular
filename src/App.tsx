@@ -13,6 +13,7 @@ import { AuthModal } from './components/AuthModal';
 import { BillingModal } from './components/BillingModal';
 import { AdminGenerationsModal } from './components/AdminGenerationsModal';
 import { EmailVerificationBanner } from './components/EmailVerificationBanner';
+import { AdminWorkspaceBanner } from './components/AdminWorkspaceBanner';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { OrganizationProvider, useOrganization } from './context/OrganizationContext';
 import {
@@ -318,6 +319,7 @@ function MainAppContent() {
           savedCount={history.length}
         />
 
+        <AdminWorkspaceBanner />
         <EmailVerificationBanner />
 
         {/* View 1: Generator Dashboard */}
@@ -444,6 +446,7 @@ function MainAppContent() {
       <AdminGenerationsModal
         isOpen={isAdminModalOpen}
         onClose={() => setIsAdminModalOpen(false)}
+        onOpenOrganization={() => setActiveView('identity')}
       />
     </div>
   );
