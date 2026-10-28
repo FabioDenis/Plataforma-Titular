@@ -5,10 +5,11 @@ export interface AuthenticatedRequest extends Request {
   user?: {
     uid: string;
     email: string;
+    emailVerified?: boolean;
   };
 }
 
-export async function authenticateFirebaseRequest(req: Request): Promise<{ uid: string; email: string }> {
+export async function authenticateFirebaseRequest(req: Request): Promise<{ uid: string; email: string; emailVerified: boolean }> {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     const error = new Error('Authentication is required.');
@@ -24,7 +25,7 @@ export async function authenticateFirebaseRequest(req: Request): Promise<{ uid: 
   }
 
   const decodedToken = await getAdminAuth().verifyIdToken(idToken);
-  return { uid: decodedToken.uid, email: decodedToken.email || '' };
+  return { uid: decodedToken.uid, email: decodedToken.email || '', emailVerified: decodedToken.email_verified === true };
 }
 
 export async function verifyFirebaseAuth(

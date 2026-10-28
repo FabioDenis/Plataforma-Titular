@@ -75,7 +75,9 @@ export async function bootstrapAccount(
       : await transaction.get(selectedOrgRef);
 
     if (referencedOrganizationId && selectedOrgSnap.exists) {
-      if (selectedOrgSnap.data()?.ownerUid !== identity.uid) {
+      const selectedData = selectedOrgSnap.data() || {};
+      const isMember = Array.isArray(selectedData.members) && selectedData.members.includes(identity.uid);
+      if (selectedData.ownerUid !== identity.uid && !isMember) {
         throw new BootstrapConflictError();
       }
     } else {

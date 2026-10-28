@@ -30,7 +30,9 @@ async function seed() {
     await setDoc(doc(db, 'users/bob'), { uid: 'bob', email: 'bob@example.test', role: 'owner', organizationId: 'org_bob' });
     await setDoc(doc(db, 'users/admin'), { uid: 'admin', email: 'admin@example.test', role: 'admin', isAdmin: true, organizationId: 'org_admin' });
     await setDoc(doc(db, 'organizations/org_alice'), { name: 'Alice Media', ownerUid: 'alice', plan: 'trial', publicationLimit: 3, publicationUsed: 2, status: 'Activa' });
-    await setDoc(doc(db, 'organizations/org_bob'), { name: 'Bob Media', ownerUid: 'bob', plan: 'trial', publicationLimit: 3, publicationUsed: 0, status: 'Activa' });
+    await setDoc(doc(db, 'organizations/org_bob'), { name: 'Bob Media', ownerUid: 'bob', members: ['carol'], plan: 'trial', publicationLimit: 3, publicationUsed: 0, status: 'Activa' });
+    await setDoc(doc(db, 'users/carol'), { uid: 'carol', email: 'carol@example.test', role: 'owner', organizationId: 'org_bob' });
+    await setDoc(doc(db, 'invites/dave@example.test'), { email: 'dave@example.test', orgId: 'org_bob' });
     await setDoc(doc(db, 'organizations/org_bob/publications/p1'), { title: 'Bob post' });
     await setDoc(doc(db, 'organizations/org_bob/generationLedger/m1'), { amountAdded: 10 });
   });
@@ -143,4 +145,22 @@ test('a platform admin (server-assigned) can read any organization', async () =>
 test('an email that used to be hardcoded as admin is not admin by itself', async () => {
   await seed();
   await assertFails(getDoc(doc(as('ex', 'delgado122016@gmail.com'), 'organizations/org_bob')));
+});
+
+// --- Team members ---
+
+test('a member of a newsroom can read it and edit its branding, but not its members or balance', async () => {
+  await seed();
+  const db = as('carol');
+  await assertSucceeds(getDoc(doc(db, 'organizations/org_bob')));
+  await assertSucceeds(updateDoc(doc(db, 'organizations/org_bob'), { name: 'Bob Media Noticias' }));
+  await assertFails(updateDoc(doc(db, 'organizations/org_bob'), { members: ['carol', 'mallory'] }));
+  await assertFails(updateDoc(doc(db, 'organizations/org_bob'), { publicationLimit: 999 }));
+  await assertSucceeds(getDoc(doc(db, 'organizations/org_bob/publications/p1')));
+});
+
+test('invites are never readable or writable from the client', async () => {
+  await seed();
+  await assertFails(getDoc(doc(as('dave', 'dave@example.test'), 'invites/dave@example.test')));
+  await assertFails(setDoc(doc(as('mallory'), 'invites/mallory@example.test'), { orgId: 'org_bob' }));
 });

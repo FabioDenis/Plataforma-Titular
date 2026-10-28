@@ -53,6 +53,13 @@ import {
   startGeneration,
   validateIdempotencyKey,
 } from './server/ai-generations';
+import {
+  acceptPendingInvites,
+  addOrganizationMember,
+  listOrganizationMembers,
+  MembershipError,
+  removeOrganizationMember,
+} from './server/organization-members';
 
 // Safe resolution for __dirname in both CJS bundle and ESM environments
 const getCurrentDir = (): string => {
@@ -288,8 +295,19 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
       });
     });
 
+    // Joins the newsroom a platform admin invited this verified address to. Best effort: never blocks sign-in.
+    async function joinInvitedOrganization(user: AuthenticatedRequest['user']) {
+      try {
+        return await acceptPendingInvites({ uid: user!.uid, email: user!.email, emailVerified: user!.emailVerified });
+      } catch (error) {
+        console.error('Accepting pending organization invite failed:', (error as Error)?.message);
+        return null;
+      }
+    }
+
     app.post('/api/auth/bootstrap', verifyAuth as any, async (req: AuthenticatedRequest, res) => {
       try {
+        await joinInvitedOrganization(req.user);
         const result = await runBootstrapAccount({
           uid: req.user!.uid,
           email: req.user!.email,
@@ -460,6 +478,70 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
       } catch (err: any) {
         console.error('Error fetching org history:', err);
         return res.status(500).json({ error: 'Error al consultar el historial de generaciones.' });
+      }
+    });
+
+    // API Route: Accept a pending newsroom invite for the signed-in (verified) account
+    app.post('/api/me/accept-invites', verifyAuth as any, async (req: AuthenticatedRequest, res) => {
+      const organizationId = await joinInvitedOrganization(req.user);
+      return res.json({ joined: Boolean(organizationId), organizationId });
+    });
+
+    const membershipErrorResponses: Record<string, [number, string]> = {
+      INVALID_EMAIL: [400, 'Ingresá un email válido.'],
+      ORGANIZATION_NOT_FOUND: [404, 'El medio no existe.'],
+      ALREADY_OWNER: [409, 'Esa cuenta ya es la dueña de este medio.'],
+      OWNER_CANNOT_BE_REMOVED: [409, 'No se puede quitar a la cuenta dueña del medio.'],
+      MEMBER_NOT_FOUND: [404, 'Esa cuenta no pertenece a este medio ni tiene una invitación pendiente.'],
+    };
+
+    function sendMembershipError(res: express.Response, err: unknown, fallback: string) {
+      if (err instanceof MembershipError) {
+        const [status, message] = membershipErrorResponses[err.code];
+        return res.status(status).json({ code: err.code, error: message });
+      }
+      console.error(fallback, (err as Error)?.message);
+      return res.status(500).json({ error: fallback });
+    }
+
+    async function requirePlatformAdmin(req: AuthenticatedRequest, res: express.Response): Promise<boolean> {
+      const isAdmin = await checkIsHermesAdmin(req.user!.uid, req.user!.email);
+      if (!isAdmin) res.status(403).json({ error: 'Acceso denegado: se requieren permisos de administrador.' });
+      return isAdmin;
+    }
+
+    // API Routes: Team members of an organization (platform admins only)
+    app.get('/api/admin/organizations/:orgId/members', verifyFirebaseAuth as any, async (req: AuthenticatedRequest, res) => {
+      try {
+        if (!(await requirePlatformAdmin(req, res))) return;
+        return res.json(await listOrganizationMembers(req.params.orgId));
+      } catch (err) {
+        return sendMembershipError(res, err, 'Error al consultar los miembros del medio.');
+      }
+    });
+
+    app.post('/api/admin/organizations/:orgId/members', verifyFirebaseAuth as any, async (req: AuthenticatedRequest, res) => {
+      try {
+        if (!(await requirePlatformAdmin(req, res))) return;
+        const result = await addOrganizationMember({
+          orgId: req.params.orgId,
+          email: req.body?.email,
+          invitedByUid: req.user!.uid,
+          invitedByEmail: req.user!.email,
+        });
+        return res.json(result);
+      } catch (err) {
+        return sendMembershipError(res, err, 'Error al agregar la cuenta al medio.');
+      }
+    });
+
+    app.post('/api/admin/organizations/:orgId/members/remove', verifyFirebaseAuth as any, async (req: AuthenticatedRequest, res) => {
+      try {
+        if (!(await requirePlatformAdmin(req, res))) return;
+        await removeOrganizationMember({ orgId: req.params.orgId, email: req.body?.email });
+        return res.json({ success: true });
+      } catch (err) {
+        return sendMembershipError(res, err, 'Error al quitar la cuenta del medio.');
       }
     });
 

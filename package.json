@@ -13,7 +13,7 @@
     "lint": "tsc --noEmit",
     "test": "npm run test:unit && npm run test:emulator",
     "test:unit": "node --import tsx --import ./server/test-env.ts --test server/gemini.test.ts server/auth-bootstrap.test.ts",
-    "test:emulator": "firebase emulators:exec --project demo-titular --only firestore \"node --import tsx --import ./server/test-env.ts --test server/ai-generations.emulator.test.ts server/auth-bootstrap.emulator.test.ts server/firestore-rules.emulator.test.ts\"",
+    "test:emulator": "firebase emulators:exec --project demo-titular --only firestore \"node --import tsx --import ./server/test-env.ts --test server/ai-generations.emulator.test.ts server/auth-bootstrap.emulator.test.ts server/firestore-rules.emulator.test.ts server/organization-members.emulator.test.ts\"",
     "test:gemini": "node --import tsx --import ./server/test-env.ts --test server/gemini.test.ts",
     "test:ai:emulator": "firebase emulators:exec --project demo-titular --only firestore \"node --import tsx --import ./server/test-env.ts --test server/ai-generations.emulator.test.ts\"",
     "test:auth": "node --import tsx --import ./server/test-env.ts --test server/auth-bootstrap.test.ts",
