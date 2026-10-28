@@ -27,3 +27,6 @@ Branch: `feat/shared-organizations` · Delivery: ask-on-risk · Runner: `npm run
 - L3 User chose Firestore per organization + admin-managed members ("si hacelo").
 - L4 Security baseline committed: ff8af75.
 - L5 (2026-10-28) User: "en cuanto a los creditos, nostros nos vamos a encargar de eso, osea que los clientes no tendrian q ver cuantas generaciones le quedan o algo asi, nosotros nos vamos a encargar de que siempre existan creditos disponibles, ya que van a pagarnos un precio estandar sin tener en cuenta generaciones a realizar" -> added S7/T4.
+- L6 Independent verifier: S3-S6 met; blocker B1 (active-org race in OrganizationContext let members land on their personal org), S7 gap (?billing= redirect opened BillingModal for clients), A1 (non-atomic identity seed). One correction batch fixed all three; recheck: FIXED.
+- L7 Known pre-existing flaky test: "a second key cannot reserve past a publication limit of one" (fails intermittently at baseline 3a00b66 too).
+- L8 Pending: deploy (rules + titular-api + hosting), manual E2E with 2+ real emails, data audit of existing admin flags/limits.

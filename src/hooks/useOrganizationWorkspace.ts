@@ -7,6 +7,7 @@ import {
   onSnapshot,
   orderBy,
   query,
+  runTransaction,
   setDoc,
   writeBatch,
 } from 'firebase/firestore';
@@ -105,9 +106,12 @@ export function useOrganizationWorkspace(): OrganizationWorkspace {
             name: orgNameRef.current || DEFAULT_IDENTITY.name,
             updatedAt: new Date().toISOString(),
           };
-          setDoc(doc(identitiesRef, seed.id), toFirestore(seed)).catch((err) =>
-            console.error('Error creating the default identity:', err)
-          );
+          // Transactional create-if-missing: concurrent members never overwrite each other's edits.
+          const seedRef = doc(identitiesRef, seed.id);
+          runTransaction(db, async (transaction) => {
+            if ((await transaction.get(seedRef)).exists()) return;
+            transaction.set(seedRef, toFirestore(seed));
+          }).catch((err) => console.error('Error creating the default identity:', err));
         }
       },
       (err) => console.error('Error loading identities:', err)

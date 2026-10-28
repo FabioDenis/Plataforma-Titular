@@ -78,6 +78,8 @@ function MainAppContent() {
 
   // Detect query params for billing redirects (success/pending/failure)
   useEffect(() => {
+    // Payment redirects only concern platform admins; clients never see balances or plans.
+    if (!isAdmin) return;
     const params = new URLSearchParams(window.location.search);
     const billingStatus = params.get('billing');
     if (billingStatus === 'success') {
@@ -92,7 +94,7 @@ function MainAppContent() {
       setError('No se pudo completar el pago en Mercado Pago. Por favor intentá nuevamente.');
       window.history.replaceState({}, document.title, window.location.pathname);
     }
-  }, [setIsBillingOpen]);
+  }, [setIsBillingOpen, isAdmin]);
 
   const handleProcessUrl = async (url: string) => {
     if (!user) {

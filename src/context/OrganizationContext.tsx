@@ -126,6 +126,9 @@ export const OrganizationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
           let queryOrgsList: OrganizationData[] = [];
           let singleOrgData: OrganizationData | null = null;
+          // users/{uid}.organizationId decides the active newsroom. Until that document answers,
+          // never fall back to another organization (a member also owns a personal one).
+          let singleOrgResolved = false;
 
           const updateCombinedOrgs = () => {
             const combinedMap = new Map<string, OrganizationData>();
@@ -137,7 +140,10 @@ export const OrganizationProvider: React.FC<{ children: React.ReactNode }> = ({ 
             });
             const resultList = Array.from(combinedMap.values());
             setOrganizations(resultList);
-            if (resultList.length > 0 && (!userOrgId || !combinedMap.has(userOrgId))) {
+            if (!singleOrgResolved) return;
+            if (singleOrgData) {
+              setActiveOrgId(userOrgId);
+            } else if (resultList.length > 0) {
               setActiveOrgId(resultList[0].id);
             }
             setLoading(false);
@@ -151,6 +157,8 @@ export const OrganizationProvider: React.FC<{ children: React.ReactNode }> = ({ 
             singleOrgRef,
             (singleSnap) => {
               if (isCancelled) return;
+              singleOrgResolved = true;
+              singleOrgData = null;
               if (singleSnap.exists()) {
                 const rawData = singleSnap.data();
                 singleOrgData = {
@@ -172,7 +180,12 @@ export const OrganizationProvider: React.FC<{ children: React.ReactNode }> = ({ 
               updateCombinedOrgs();
             },
             (err) => {
+              // Access revoked (e.g. removed from a newsroom): fall back to the account's own organization.
               console.error('Error escuchando organizations/{userOrgId}:', err);
+              if (isCancelled) return;
+              singleOrgResolved = true;
+              singleOrgData = null;
+              updateCombinedOrgs();
             }
           );
 
@@ -247,7 +260,7 @@ export const OrganizationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
   // Active Organization object
   const organization =
-    organizations.find((o) => o.id === activeOrgId) || organizations[0] || null;
+    (activeOrgId ? organizations.find((o) => o.id === activeOrgId) : organizations[0]) || null;
 
   const updateOrganization = useCallback(
     async (updates: Partial<OrganizationData>) => {
