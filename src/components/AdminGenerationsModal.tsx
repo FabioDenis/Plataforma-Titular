@@ -19,6 +19,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { useOrganization } from '../context/OrganizationContext';
 import { AdminUserRecord, GenerationMovement } from '../types';
+import { OrganizationMembersPanel } from './OrganizationMembersPanel';
 
 interface AdminGenerationsModalProps {
   isOpen: boolean;
@@ -542,6 +543,13 @@ export const AdminGenerationsModal: React.FC<AdminGenerationsModalProps> = ({ is
                     </div>
                   </div>
                 </div>
+
+                <OrganizationMembersPanel
+                  orgId={selectedUser.organizationId}
+                  orgName={selectedUser.organizationName}
+                  authFetch={authFetch}
+                  onChanged={() => fetchUsers(true)}
+                />
 
                 {/* Generaciones Metrics & Main Action */}
                 <div className="rounded-xl border border-brand-navy/15 bg-white p-5">

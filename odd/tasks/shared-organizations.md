@@ -18,7 +18,7 @@ Branch: `feat/shared-organizations` · Delivery: ask-on-risk · Runner: `npm run
 - T1 [S2,S3,S5] Server: membership (add/remove/list, invites, bootstrap for members, verified email) + admin endpoints + tests. Route: inline. Status: done, 225c6a7 (9 membership + 2 rules tests green).
 - T2 [S1,S2,S5,S6] Rules + client workspace (identities/history subcollections, org branding/activeIdentityId, templates on identity, legacy keys cleared) + sign-in sync and email verification. Route: inline. Status: done (2 rules tests RED->GREEN; client has no test runner: tsc + build).
 - T4 [S7] Hide credit counters and purchase entry points for non-admin users. Route: inline. Status: pending.
-- T3 [S3] Admin panel UI: members section per organization. Route: inline. Status: pending.
+- T3 [S3] Admin panel UI: members section per organization. Route: inline. Status: done (tsc + build; endpoints covered by T1 tests).
 
 ## Log
 
