@@ -195,3 +195,9 @@ test('another tenant cannot read or write a newsroom workspace', async () => {
   await assertFails(setDoc(doc(db, 'organizations/org_bob/history/n2'), { createdAt: 'now' }));
   await assertFails(deleteDoc(doc(db, 'organizations/org_bob/history/n1')));
 });
+
+test('a missing organization id can only be probed for the user own default organization', async () => {
+  await seed();
+  await assertSucceeds(getDoc(doc(as('erin'), 'organizations/org_erin')));
+  await assertFails(getDoc(doc(as('erin'), 'organizations/org_ghost')));
+});

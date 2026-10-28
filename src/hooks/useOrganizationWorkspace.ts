@@ -3,6 +3,7 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDocs,
   limit,
   onSnapshot,
   orderBy,
@@ -17,6 +18,8 @@ import { DEFAULT_IDENTITY } from '../data/sampleIdentities';
 import { GeneratedNewsResult, OrganizationIdentity, OutletBranding } from '../types';
 
 const HISTORY_LIMIT = 50;
+// Firestore allows at most 500 writes per batch.
+const DELETE_BATCH_SIZE = 400;
 
 export const DEFAULT_BRANDING: OutletBranding = {
   name: 'Tu Medio Digital',
@@ -193,13 +196,17 @@ export function useOrganizationWorkspace(): OrganizationWorkspace {
     [requireOrgId]
   );
 
+  // Deletes the whole shared history, not only the most recent entries shown on screen.
   const clearHistory = useCallback(async () => {
     const id = requireOrgId();
     const db = getClientDb();
-    const batch = writeBatch(db);
-    history.forEach((h) => batch.delete(doc(db, 'organizations', id, 'history', h.id)));
-    await batch.commit();
-  }, [requireOrgId, history]);
+    const all = await getDocs(collection(db, 'organizations', id, 'history'));
+    for (let i = 0; i < all.docs.length; i += DELETE_BATCH_SIZE) {
+      const batch = writeBatch(db);
+      all.docs.slice(i, i + DELETE_BATCH_SIZE).forEach((d) => batch.delete(d.ref));
+      await batch.commit();
+    }
+  }, [requireOrgId]);
 
   const storedActiveId = typeof organization?.activeIdentityId === 'string' ? organization.activeIdentityId : '';
   const activeIdentityId = identities.some((i) => i.id === storedActiveId)

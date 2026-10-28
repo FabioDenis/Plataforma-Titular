@@ -69,25 +69,45 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
   const registrationInProgressRef = useRef(false);
   const syncedUidRef = useRef<string | null>(null);
+  const syncInFlightRef = useRef<{ uid: string; promise: Promise<void> } | null>(null);
   const billingProfileRef = useRef<BillingProfileState | null>(null);
   billingProfileRef.current = billingProfile;
   const [emailVerified, setEmailVerified] = useState(false);
 
   // Idempotent server sync on every sign-in: repairs the account and joins pending newsroom invites.
   // Best effort: a failure here must never block signing in.
-  const syncAccount = useCallback(async (account: User, forceRefresh = false) => {
+  // Marked as synced only after a successful response, so a transient failure is retried on the next call.
+  const syncAccount = useCallback(async (account: User, forceRefresh = false, attempt = 0): Promise<void> => {
     if (!forceRefresh && syncedUidRef.current === account.uid) return;
-    syncedUidRef.current = account.uid;
-    try {
-      const token = await account.getIdToken(forceRefresh);
-      const res = await fetch('/api/auth/bootstrap', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) console.warn('Account sync returned status', res.status);
-    } catch (err) {
-      console.warn('Account sync failed:', err);
-    }
+    const inFlight = syncInFlightRef.current;
+    if (!forceRefresh && inFlight?.uid === account.uid) return inFlight.promise;
+
+    const promise = (async () => {
+      try {
+        const token = await account.getIdToken(forceRefresh);
+        const res = await fetch('/api/auth/bootstrap', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          syncedUidRef.current = account.uid;
+          return;
+        }
+        console.warn('Account sync returned status', res.status);
+      } catch (err) {
+        console.warn('Account sync failed:', err);
+      } finally {
+        if (syncInFlightRef.current?.promise === promise) syncInFlightRef.current = null;
+      }
+      // Bounded background retry (5s, then 10s) so a transient error does not strand a pending invite.
+      if (attempt < 2) {
+        setTimeout(() => {
+          if (getClientAuth().currentUser?.uid === account.uid) void syncAccount(account, false, attempt + 1);
+        }, 5000 * (attempt + 1));
+      }
+    })();
+    syncInFlightRef.current = { uid: account.uid, promise };
+    return promise;
   }, []);
 
   useEffect(() => {

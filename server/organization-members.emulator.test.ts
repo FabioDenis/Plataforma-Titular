@@ -154,3 +154,29 @@ test('invalid requests are rejected with explicit codes', async () => {
   await assert.rejects(removeOrganizationMember({ orgId, email: owner.email }, find), isCode('OWNER_CANNOT_BE_REMOVED'));
   await assert.rejects(removeOrganizationMember({ orgId, email: 'nobody@example.test' }, find), isCode('MEMBER_NOT_FOUND'));
 });
+
+test('adding a member to a newsroom removes them from every other newsroom, even if their pointer moved away', async () => {
+  const first = await newsroom();
+  const second = await newsroom();
+  const reporter = account();
+  const find = directory(reporter);
+  await addOrganizationMember({ orgId: first.orgId, email: reporter.email, invitedByUid: 'admin' }, find);
+  // The member switched back to a personal organization before being moved.
+  await getAdminDb().doc(`users/${reporter.uid}`).set({ organizationId: `org_${reporter.uid}` }, { merge: true });
+
+  await addOrganizationMember({ orgId: second.orgId, email: reporter.email, invitedByUid: 'admin' }, find);
+
+  const db = getAdminDb();
+  assert.deepEqual((await db.doc(`organizations/${first.orgId}`).get()).data()!.members, []);
+  assert.deepEqual((await db.doc(`organizations/${second.orgId}`).get()).data()!.members, [reporter.uid]);
+});
+
+test('a rejected owner removal leaves every document untouched', async () => {
+  const { owner, orgId } = await newsroom();
+  const db = getAdminDb();
+  await db.doc(`invites/${owner.email}`).set({ email: owner.email, orgId });
+
+  await assert.rejects(removeOrganizationMember({ orgId, email: owner.email }, directory(owner)), isCode('OWNER_CANNOT_BE_REMOVED'));
+
+  assert.equal((await db.doc(`invites/${owner.email}`).get()).exists, true);
+});

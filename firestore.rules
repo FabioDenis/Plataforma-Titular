@@ -48,7 +48,11 @@ service cloud.firestore {
     // organizations/{orgId}: created and billed server-side. Members may only
     // edit presentation fields; plan, limits, usage, status and ownership are server-owned.
     match /organizations/{orgId} {
-      allow get: if isSignedIn() && (resource == null || isOrgMember(resource.data) || isAdmin());
+      // A missing document is only readable as the user's own default organization (no existence probing).
+      allow get: if isSignedIn() && (
+        (resource == null && orgId == 'org_' + request.auth.uid) ||
+        (resource != null && (isOrgMember(resource.data) || isAdmin()))
+      );
       allow list: if isOrgMember(resource.data) || isAdmin();
       allow create, delete: if false;
       allow update: if isOrgMember(resource.data)

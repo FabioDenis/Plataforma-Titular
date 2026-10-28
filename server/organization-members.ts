@@ -64,7 +64,7 @@ async function requireOrganization(orgId: unknown) {
   return snap;
 }
 
-/** Links a verified account to the organization, leaving any organization it was a member of before. */
+/** Links a verified account to the organization, leaving every other organization it was a member of. */
 async function attachMember(account: AccountLookup, orgId: string): Promise<void> {
   const db = getAdminDb();
   const orgRef = db.doc(`organizations/${orgId}`);
@@ -72,19 +72,18 @@ async function attachMember(account: AccountLookup, orgId: string): Promise<void
   const inviteRef = db.doc(`invites/${account.email}`);
 
   await db.runTransaction(async (transaction) => {
-    const [orgSnap, userSnap] = await transaction.getAll(orgRef, userRef);
+    const orgSnap = await transaction.get(orgRef);
     if (!orgSnap.exists) throw new MembershipError('ORGANIZATION_NOT_FOUND');
     if (orgSnap.data()?.ownerUid === account.uid) throw new MembershipError('ALREADY_OWNER');
 
-    const previousOrgId = userSnap.data()?.organizationId;
-    let previousRef: FirebaseFirestore.DocumentReference | null = null;
-    if (typeof previousOrgId === 'string' && previousOrgId && previousOrgId !== orgId && !previousOrgId.includes('/')) {
-      const ref = db.doc(`organizations/${previousOrgId}`);
-      const previous = await transaction.get(ref);
-      if (previous.exists && membersOf(previous.data()).includes(account.uid)) previousRef = ref;
-    }
+    // The user's pointer may have moved (e.g. back to a personal organization), so search by membership.
+    const previous = await transaction.get(
+      db.collection('organizations').where('members', 'array-contains', account.uid)
+    );
 
-    if (previousRef) transaction.update(previousRef, { members: FieldValue.arrayRemove(account.uid) });
+    previous.docs
+      .filter((doc) => doc.id !== orgId)
+      .forEach((doc) => transaction.update(doc.ref, { members: FieldValue.arrayRemove(account.uid) }));
     transaction.set(orgRef, { members: FieldValue.arrayUnion(account.uid) }, { merge: true });
     transaction.set(userRef, { organizationId: orgId, email: account.email }, { merge: true });
     transaction.delete(inviteRef);
@@ -124,13 +123,14 @@ export async function removeOrganizationMember(
   const org = await requireOrganization(input.orgId);
   const db = getAdminDb();
 
+  // Validate before mutating anything, so a rejected request leaves no partial changes.
+  const account = await findAccount(email);
+  if (account && org.data()?.ownerUid === account.uid) throw new MembershipError('OWNER_CANNOT_BE_REMOVED');
+
   const inviteRef = db.doc(`invites/${email}`);
   const invite = await inviteRef.get();
   const hadInvite = invite.exists && invite.data()?.orgId === input.orgId;
   if (hadInvite) await inviteRef.delete();
-
-  const account = await findAccount(email);
-  if (account && org.data()?.ownerUid === account.uid) throw new MembershipError('OWNER_CANNOT_BE_REMOVED');
 
   let wasMember = false;
   if (account) {
