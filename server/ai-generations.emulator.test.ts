@@ -13,7 +13,7 @@ process.env.GEMINI_FALLBACK_MODELS = '';
 const { getAdminDb } = await import('./firebase-admin');
 const { createApp } = await import('../server');
 const { GeminiError } = await import('./gemini');
-const { startGeneration, GenerationStateError } = await import('./ai-generations');
+const { startGeneration, GenerationStateError, resolveAuthorizedOrganizationId, canAccessOrganization } = await import('./ai-generations');
 
 let sequence = 0;
 
@@ -343,4 +343,44 @@ test('public HTML extraction stays public while AI fallback requires auth and is
   const generation = (await getAdminDb().collection(`organizations/${identity.orgId}/aiGenerations`).get()).docs[0].data();
   assert.equal(generation.commercial, false);
   assert.equal((await getAdminDb().doc(`organizations/${identity.orgId}`).get()).data()!.publicationUsed, 0);
+});
+
+test('organization resolution ignores a profile pointing at an organization the user does not belong to', async () => {
+  const attacker = nextIdentity();
+  const victim = nextIdentity();
+  const db = getAdminDb();
+  await db.doc(`organizations/${victim.orgId}`).set({ ownerUid: victim.uid, publicationLimit: 50, publicationUsed: 0 });
+  await db.doc(`organizations/${attacker.orgId}`).set({ ownerUid: attacker.uid, publicationLimit: 3, publicationUsed: 0 });
+  await db.doc(`users/${attacker.uid}`).set({ uid: attacker.uid, organizationId: victim.orgId });
+
+  assert.equal(await resolveAuthorizedOrganizationId(attacker.uid), attacker.orgId);
+});
+
+test('organization resolution honors a profile pointing at an organization where the user is a member', async () => {
+  const member = nextIdentity();
+  const owner = nextIdentity();
+  const db = getAdminDb();
+  await db.doc(`organizations/${owner.orgId}`).set({ ownerUid: owner.uid, members: [member.uid] });
+  await db.doc(`users/${member.uid}`).set({ uid: member.uid, organizationId: owner.orgId });
+
+  assert.equal(await resolveAuthorizedOrganizationId(member.uid), owner.orgId);
+});
+
+test('organization access is limited to owners, members and platform admins', async () => {
+  const owner = nextIdentity();
+  const member = nextIdentity();
+  const outsider = nextIdentity();
+  const platformAdmin = nextIdentity();
+  const db = getAdminDb();
+  await db.doc(`organizations/${owner.orgId}`).set({ ownerUid: owner.uid, members: [member.uid] });
+  // Every account gets role 'owner' at bootstrap; that role must not grant access to other organizations.
+  await db.doc(`users/${outsider.uid}`).set({ uid: outsider.uid, role: 'owner', organizationId: outsider.orgId });
+  await db.doc(`users/${platformAdmin.uid}`).set({ uid: platformAdmin.uid, role: 'admin', isAdmin: true });
+
+  assert.equal(await canAccessOrganization(owner.uid, undefined, owner.orgId), true);
+  assert.equal(await canAccessOrganization(member.uid, undefined, owner.orgId), true);
+  assert.equal(await canAccessOrganization(outsider.uid, undefined, owner.orgId), false);
+  assert.equal(await canAccessOrganization(platformAdmin.uid, undefined, owner.orgId), true);
+  assert.equal(await canAccessOrganization(outsider.uid, undefined, `${owner.orgId}/publications/x`), false);
+  assert.equal(await canAccessOrganization(outsider.uid, undefined, 'missing-org'), false);
 });

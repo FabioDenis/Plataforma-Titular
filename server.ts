@@ -47,6 +47,7 @@ import { getOptionalNumberEnv, getOptionalServerEnv, validateServerStartupEnv } 
 import { GeminiError, GeminiFailureReason, generateGeminiContent } from './server/gemini';
 import {
   createServerGenerationId,
+  canAccessOrganization,
   GenerationStateError,
   resolveAuthorizedOrganizationId,
   startGeneration,
@@ -568,37 +569,18 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
       }
     });
 
-    // Helper to verify user administrator/owner permission for an organization
-    async function checkUserAdminPermission(uid: string, orgId?: string): Promise<boolean> {
-      try {
-        const db = getAdminDb();
-        const userDoc = await db.doc(`users/${uid}`).get();
-        if (!userDoc.exists) {
-          return false;
-        }
-
-        const userData = userDoc.data() || {};
-        const role = (userData.role || '').toLowerCase();
-        if (role === 'admin' || role === 'owner' || role === 'administrator') {
-          return true;
-        }
-
-        if (orgId) {
-          const orgDoc = await db.doc(`organizations/${orgId}`).get();
-          if (orgDoc.exists && orgDoc.data()?.ownerUid === uid) {
-            return true;
-          }
-        }
-        return false;
-      } catch {
-        return false;
-      }
+    // Owners, members and platform admins only. The per-user role is not a cross-tenant grant.
+    function checkUserAdminPermission(req: AuthenticatedRequest, orgId: unknown): Promise<boolean> {
+      return canAccessOrganization(req.user!.uid, req.user!.email, orgId).catch(() => false);
     }
 
     // Connection Status for Organization
     app.get('/api/meta/status', verifyFirebaseAuth as any, async (req: AuthenticatedRequest, res) => {
       try {
         const orgId = (req.query.orgId as string) || `org_${req.user!.uid}`;
+        if (!(await checkUserAdminPermission(req, orgId))) {
+          return res.status(403).json({ error: 'No tienes acceso a esta organización.' });
+        }
         const status = await getOrganizationSocialStatus(orgId);
         return res.json(status);
       } catch (err: any) {
@@ -613,7 +595,7 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
         const orgId = (req.query.orgId as string) || `org_${req.user!.uid}`;
         const userId = req.user!.uid;
 
-        const hasPermission = await checkUserAdminPermission(userId, orgId);
+        const hasPermission = await checkUserAdminPermission(req, orgId);
         if (!hasPermission) {
           return res.status(403).json({
             error: 'Permisos insuficientes: Solo administradores pueden conectar redes sociales.',
@@ -747,7 +729,7 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
         const targetOrgId = orgId || `org_${req.user!.uid}`;
         const userId = req.user!.uid;
 
-        const hasPermission = await checkUserAdminPermission(userId, targetOrgId);
+        const hasPermission = await checkUserAdminPermission(req, targetOrgId);
         if (!hasPermission) {
           return res.status(403).json({
             error: 'Permisos insuficientes: Solo los usuarios con rol de Administrador pueden seleccionar y vincular páginas de redes sociales.',
@@ -775,7 +757,7 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
         const targetOrgId = orgId || `org_${req.user!.uid}`;
         const userId = req.user!.uid;
 
-        const hasPermission = await checkUserAdminPermission(userId, targetOrgId);
+        const hasPermission = await checkUserAdminPermission(req, targetOrgId);
         if (!hasPermission) {
           return res.status(403).json({
             error: 'Permisos insuficientes: Solo los usuarios con rol de Administrador pueden desconectar redes sociales.',
@@ -842,7 +824,7 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
         const targetOrgId = orgId || `org_${uid}`;
 
         // Org authorization: only administrators/owners of the organization may publish to Meta.
-        const hasPermission = await checkUserAdminPermission(uid, targetOrgId);
+        const hasPermission = await checkUserAdminPermission(req, targetOrgId);
         if (!hasPermission) {
           return res.status(403).json({
             error: 'Permisos insuficientes: Solo los usuarios con rol de Administrador pueden publicar en redes sociales.',
@@ -889,7 +871,7 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
 
         // Org authorization: only administrators/owners of the organization may retry Meta publications.
         const userId = req.user!.uid;
-        const hasPermission = await checkUserAdminPermission(userId, orgId);
+        const hasPermission = await checkUserAdminPermission(req, orgId);
         if (!hasPermission) {
           return res.status(403).json({
             error: 'Permisos insuficientes: Solo los usuarios con rol de Administrador pueden reintentar publicaciones en redes sociales.',
@@ -908,6 +890,9 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
     app.get('/api/meta/history', verifyFirebaseAuth as any, async (req: AuthenticatedRequest, res) => {
       try {
         const orgId = (req.query.orgId as string) || `org_${req.user!.uid}`;
+        if (!(await checkUserAdminPermission(req, orgId))) {
+          return res.status(403).json({ error: 'No tienes acceso a esta organización.' });
+        }
         const db = getAdminDb();
         const pubsRef = db.collection(`organizations/${orgId}/publications`);
         const snapshot = await pubsRef.orderBy('createdAt', 'desc').limit(50).get();

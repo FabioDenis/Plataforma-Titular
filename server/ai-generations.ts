@@ -1,7 +1,7 @@
 import { getOptionalNumberEnv } from './config/env';
 import { getAdminDb } from './firebase-admin';
 import { GeminiAttempt, GeminiFailureReason, GeminiResult } from './gemini';
-import { DEFAULT_TRIAL_PUBLICATION_LIMIT } from './billing';
+import { checkIsHermesAdmin, DEFAULT_TRIAL_PUBLICATION_LIMIT } from './billing';
 import type { DocumentReference } from 'firebase-admin/firestore';
 
 export type GenerationState = 'reserved' | 'completed' | 'failed';
@@ -25,13 +25,34 @@ export function createServerGenerationId(): string {
   return `srv_${crypto.randomUUID().replace(/-/g, '')}`;
 }
 
+function isOrganizationMember(data: Record<string, unknown> | undefined, uid: string): boolean {
+  if (!data) return false;
+  const members = data.members;
+  return data.ownerUid === uid || (Array.isArray(members) && members.includes(uid));
+}
+
+function isValidOrganizationId(orgId: unknown): orgId is string {
+  return typeof orgId === 'string' && orgId.trim() !== '' && !orgId.includes('/');
+}
+
+/**
+ * True when the user owns or belongs to the organization, or is a platform admin.
+ * The per-user 'owner' role is NOT a cross-tenant grant: every account receives it at bootstrap.
+ */
+export async function canAccessOrganization(uid: string, email: string | undefined, orgId: unknown): Promise<boolean> {
+  if (!isValidOrganizationId(orgId)) return false;
+  const org = await getAdminDb().collection('organizations').doc(orgId).get();
+  if (org.exists && isOrganizationMember(org.data(), uid)) return true;
+  return checkIsHermesAdmin(uid, email);
+}
+
 export async function resolveAuthorizedOrganizationId(uid: string): Promise<string> {
   const db = getAdminDb();
   const user = await db.collection('users').doc(uid).get();
   const organizationId = user.data()?.organizationId;
-  if (typeof organizationId === 'string' && organizationId.trim()) {
+  if (isValidOrganizationId(organizationId)) {
     const org = await db.collection('organizations').doc(organizationId).get();
-    if (org.exists) return organizationId;
+    if (org.exists && isOrganizationMember(org.data(), uid)) return organizationId;
   }
   const owned = await db.collection('organizations').where('ownerUid', '==', uid).limit(1).get();
   if (!owned.empty) return owned.docs[0].id;

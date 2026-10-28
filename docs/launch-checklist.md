@@ -13,18 +13,28 @@ Firebase Hosting `titular-53a66`, reglas de Firestore desplegadas, bundle en viv
       `MERCADOPAGO_ACCESS_TOKEN` y `MERCADOPAGO_WEBHOOK_SECRET` (único secret
       existente: `GEMINI_API_KEY`). Sin esto no hay checkout ni webhooks firmados.
       Fix: `gcloud secrets create` + deploy del servicio.
-- [ ] **B3. Credenciales Meta en Cloud Run.** Faltan `META_APP_ID`,
+- [x] ~~**B3. Credenciales Meta en Cloud Run.**~~ Ya no bloquea (2026-10-28):
+      la publicación directa se quitó de la UI y el flujo es manual. Pasa a
+      post-lanzamiento si se reactiva la publicación directa.
+      Detalle original: faltan `META_APP_ID`,
       `META_APP_SECRET`, `META_TOKEN_ENCRYPTION_KEY` y `META_REDIRECT_URI`
       (o APP_URL válida). Sin esto no se pueden conectar cuentas → ni
       publicación directa ni handoff con cuentas reales. Además la app de Meta
       necesita modo producción con permisos aprobados
       (`pages_manage_posts`, `pages_read_engagement`, `instagram_content_publish`)
       e Instagram Business/Creator vinculado a la página.
-- [ ] **B4. Admin inconsistente.** `firestore.rules` hardcodea
-      `delgado122016@gmail.com` como admin; Cloud Run usa
-      `ADMIN_EMAILS=titular.mis@gmail.com`. El admin real no puede escribir
-      `generationLedger` ni actualizar organizaciones ajenas.
-      Fix corto: alinear emails. Fix correcto: custom claims de Firebase.
+- [x] **B4. Admin inconsistente.** Corregido en código (2026-10-28): las reglas
+      ya no hardcodean emails; un admin es `users/{uid}.isAdmin == true` o
+      `role in ['admin','superadmin']`, campos que solo escribe el servidor.
+      Toda acción de admin pasa por `/api/admin/*` (Admin SDK + `ADMIN_EMAILS`).
+- [ ] **B6. Desplegar reglas de Firestore y auditar admins existentes.**
+      Hasta 2026-10-28 cualquier usuario podía autoasignarse admin, crear
+      organizaciones con créditos arbitrarios, bajar su `publicationUsed` y
+      apuntar su perfil a otra organización. Fix en `firestore.rules` y
+      `resolveAuthorizedOrganizationId`. Pasos:
+      `firebase deploy --only firestore:rules` + deploy de `titular-api`, y
+      revisar en Firestore que ningún `users` tenga `isAdmin`/`role: admin`
+      ni organizaciones con `publicationLimit` anómalo que no correspondan.
 - [ ] **B5. Dominio canónico roto.** `titular.com.ar` (la APP_URL configurada en
       Cloud Run) redirige 301 a `titulares.ar`, que sirve **otro sitio legacy**,
       no la SPA. La app real vive en `titular-53a66.web.app`.
@@ -34,11 +44,14 @@ Firebase Hosting `titular-53a66`, reglas de Firestore desplegadas, bundle en viv
 
 ## 🟡 Importantes antes de abrir al público
 
-- [ ] **S1. Aislamiento multi-tenant en reglas.** `organizations` permite
-      `read` a cualquier usuario autenticado, y `publications` permite
-      read/create/update a cualquiera firmado. Cualquier medio puede leer datos
-      (y escribir publicaciones) de otras organizaciones. Restringir por
-      `ownerUid`/`members`.
+- [x] **S1. Aislamiento multi-tenant en reglas.** Corregido en código
+      (2026-10-28): organizaciones y subcolecciones solo legibles por
+      `ownerUid`/`members` o admin; el cliente solo edita `name`, `logoUrl` y
+      `activeOfficialTemplate*`. Cubierto por
+      `server/firestore-rules.emulator.test.ts`. Requiere B6 (deploy).
+      Los endpoints `/api/meta/*` ahora exigen `canAccessOrganization`
+      (dueño, miembro o admin de plataforma); antes el rol `owner`, que todos
+      reciben, daba acceso a cualquier organización.
 - [ ] **S2. Suite de tests completa en limpio** (`npm run test` con emuladores:
       unit + emulator para ai-generations y auth-bootstrap).
 - [ ] **S3. E2E en producción:** registro → bootstrap → identidad → procesar

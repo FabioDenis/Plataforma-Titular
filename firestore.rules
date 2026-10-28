@@ -2,7 +2,6 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Funciones auxiliares de seguridad
     function isSignedIn() {
       return request.auth != null;
     }
@@ -11,60 +10,77 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
+    // Platform admins are assigned server-side only (users/{uid}.isAdmin or role).
+    // Clients can never write these fields, so the profile is a trusted source.
     function isAdmin() {
-      return isSignedIn() && (
-        request.auth.token.email.lower() == 'delgado122016@gmail.com'
+      let profilePath = /databases/$(database)/documents/users/$(request.auth.uid);
+      return isSignedIn() && exists(profilePath) && (
+        get(profilePath).data.get('isAdmin', false) == true ||
+        get(profilePath).data.get('role', '') in ['admin', 'superadmin']
       );
     }
 
-    // Permisos para la colección de usuarios (users/{userId})
-    match /users/{userId} {
-      allow read: if isUser(userId) || isAdmin();
-      allow create: if isUser(userId) && request.resource.data.uid == request.auth.uid;
-      // Los usuarios normales pueden actualizar su perfil, pero no autoasignarse rol de administrador
-      allow update: if (isUser(userId) &&
-        (!('role' in request.resource.data) || request.resource.data.role == resource.data.role) &&
-        (!('isAdmin' in request.resource.data) || request.resource.data.isAdmin == resource.data.isAdmin))
-        || isAdmin();
+    function isOrgMember(orgData) {
+      return isSignedIn() && (
+        orgData.get('ownerUid', '') == request.auth.uid ||
+        request.auth.uid in orgData.get('members', [])
+      );
     }
 
-    // Permisos para la colección de organizaciones (organizations/{orgId})
-    match /organizations/{orgId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn() && request.resource.data.ownerUid == request.auth.uid;
-      // Los usuarios pueden actualizar branding/configuración y registrar consumo, pero no pueden aumentar publicationLimit ni alterar status
-      allow update: if (isSignedIn() &&
-        (resource.data.ownerUid == request.auth.uid || resource.data.ownerUid == null || resource.data.ownerUid == '' || (resource.data.members != null && request.auth.uid in resource.data.members)) &&
-        (!('publicationLimit' in request.resource.data) || request.resource.data.publicationLimit <= resource.data.publicationLimit) &&
-        (!('status' in request.resource.data) || request.resource.data.status == resource.data.status))
-        || isAdmin();
-      allow delete: if (isSignedIn() && resource.data.ownerUid == request.auth.uid) || isAdmin();
+    function canAccessOrgId(orgId) {
+      let orgPath = /databases/$(database)/documents/organizations/$(orgId);
+      return exists(orgPath) && isOrgMember(get(orgPath).data);
+    }
 
-      // Tokens sensibles de Meta protegidos del lado servidor (Zero-Trust)
+    // users/{userId}: created by the server bootstrap. Clients may only switch
+    // their active organization to one they belong to.
+    match /users/{userId} {
+      allow read: if isUser(userId) || isAdmin();
+      allow create, delete: if false;
+      allow update: if isUser(userId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['organizationId', 'displayName', 'updatedAt'])
+        && (
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['organizationId']) ||
+          canAccessOrgId(request.resource.data.organizationId)
+        );
+    }
+
+    // organizations/{orgId}: created and billed server-side. Members may only
+    // edit presentation fields; plan, limits, usage, status and ownership are server-owned.
+    match /organizations/{orgId} {
+      allow get: if isSignedIn() && (resource == null || isOrgMember(resource.data) || isAdmin());
+      allow list: if isOrgMember(resource.data) || isAdmin();
+      allow create, delete: if false;
+      allow update: if isOrgMember(resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'name',
+          'logoUrl',
+          'activeOfficialTemplateId',
+          'activeOfficialTemplateName',
+          'activeOfficialTemplateCustomization',
+          'updatedAt'
+        ]);
+
       match /privateMetaTokens/{tokenDoc} {
         allow read, write: if false;
       }
 
-      // Conexiones sociales públicas de la institución
       match /socialConnections/{connId} {
-        allow read: if isSignedIn();
-        allow write: if isAdmin();
+        allow read: if canAccessOrgId(orgId) || isAdmin();
+        allow write: if false;
       }
 
-      // Historial de publicaciones institucionales
       match /publications/{pubId} {
-        allow read: if isSignedIn();
-        allow create, update: if isSignedIn();
+        allow read: if canAccessOrgId(orgId) || isAdmin();
+        allow write: if false;
       }
 
-      // Historial inmutable de generaciones asignadas por administradores
       match /generationLedger/{movementId} {
-        allow read: if isSignedIn();
-        allow write: if isAdmin();
+        allow read: if canAccessOrgId(orgId) || isAdmin();
+        allow write: if false;
       }
     }
 
-    // Regla de Seguridad SaaS Zero-Trust para Billing (billingUsers/{uid})
     match /billingUsers/{uid} {
       allow read: if isUser(uid);
       allow write: if false;
@@ -75,10 +91,8 @@ service cloud.firestore {
       }
     }
 
-    // Registros de eventos de webhooks inaccesibles directamente por los clientes
     match /billingEvents/{eventId} {
       allow read, write: if false;
     }
   }
 }
-

@@ -28,8 +28,6 @@ export interface UseOrganizationReturn {
   error: string | null;
   reload: () => Promise<void>;
   updateOrganization: (updates: Partial<OrganizationData>) => Promise<void>;
-  incrementPublicationUsed: () => Promise<void>;
-  createOrganization: (name: string, orgType: string) => Promise<void>;
   selectOrganization: (orgId: string) => Promise<void>;
 }
 
@@ -267,51 +265,6 @@ export const OrganizationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     [activeOrgId, organization?.id, user]
   );
 
-  const incrementPublicationUsed = useCallback(async () => {
-    const targetId = activeOrgId || organization?.id;
-    if (!targetId || !user) return;
-    try {
-      const db = getClientDb();
-      const orgRef = doc(db, 'organizations', targetId);
-      const currentUsed = organization?.publicationUsed ?? 0;
-      await updateDoc(orgRef, {
-        publicationUsed: currentUsed + 1,
-      });
-    } catch (err) {
-      console.error('Error al incrementar publicationUsed:', err);
-    }
-  }, [activeOrgId, organization?.id, organization?.publicationUsed, user]);
-
-  const createOrganization = useCallback(
-    async (name: string, orgType: string) => {
-      if (!user) return;
-      try {
-        const db = getClientDb();
-        const newOrgRef = doc(collection(db, 'organizations'));
-        const newOrgData = {
-          name,
-          ownerUid: user.uid,
-          plan: 'trial',
-          publicationLimit: DEFAULT_TRIAL_PUBLICATION_LIMIT,
-          publicationUsed: 0,
-          createdAt: new Date().toISOString(),
-          status: 'Activa',
-          orgType: orgType || 'Medio Digital',
-        };
-        await setDoc(newOrgRef, newOrgData);
-
-        // Update active org ID in users/{uid}
-        const userRef = doc(db, 'users', user.uid);
-        await setDoc(userRef, { organizationId: newOrgRef.id }, { merge: true });
-        setActiveOrgId(newOrgRef.id);
-      } catch (err) {
-        console.error('Error creando nueva organización en Firestore:', err);
-        throw err;
-      }
-    },
-    [user]
-  );
-
   const selectOrganization = useCallback(
     async (orgId: string) => {
       if (!user) return;
@@ -337,8 +290,6 @@ export const OrganizationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         error,
         reload,
         updateOrganization,
-        incrementPublicationUsed,
-        createOrganization,
         selectOrganization,
       }}
     >
@@ -358,8 +309,6 @@ export const useOrganization = (): UseOrganizationReturn => {
       error: 'useOrganization debe utilizarse dentro de OrganizationProvider',
       reload: async () => {},
       updateOrganization: async () => {},
-      incrementPublicationUsed: async () => {},
-      createOrganization: async () => {},
       selectOrganization: async () => {},
     };
   }
