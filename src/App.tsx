@@ -12,6 +12,7 @@ import { IdentitySection } from './components/IdentitySection';
 import { AuthModal } from './components/AuthModal';
 import { BillingModal } from './components/BillingModal';
 import { AdminGenerationsModal } from './components/AdminGenerationsModal';
+import { EmailVerificationBanner } from './components/EmailVerificationBanner';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { OrganizationProvider, useOrganization } from './context/OrganizationContext';
 import {
@@ -23,13 +24,9 @@ import {
   OrganizationIdentity,
   DEFAULT_TRIAL_PUBLICATION_LIMIT,
 } from './types';
-import { PRESET_ORGANIZATIONS } from './data/sampleIdentities';
+import { DEFAULT_IDENTITY } from './data/sampleIdentities';
+import { useOrganizationWorkspace } from './hooks/useOrganizationWorkspace';
 import { Newspaper, CheckCircle2, Building2 } from 'lucide-react';
-
-const STORAGE_KEY = 'newsflow_ai_history_v1';
-const BRANDING_KEY = 'newsflow_ai_branding_v1';
-const IDENTITIES_KEY = 'newsflow_ai_identities_v1';
-const ACTIVE_IDENTITY_KEY = 'newsflow_ai_active_identity_v1';
 
 function MainAppContent() {
   const {
@@ -43,51 +40,11 @@ function MainAppContent() {
 
   const { organization } = useOrganization();
 
-  const [branding, setBranding] = useState<OutletBranding>(() => {
-    try {
-      const saved = localStorage.getItem(BRANDING_KEY);
-      if (saved) return JSON.parse(saved);
-    } catch {
-      // Ignore
-    }
-    return {
-      name: 'Tu Medio Digital',
-      accentColor: '#2563eb',
-      themeStyle: 'dark',
-    };
-  });
-
-  const [identities, setIdentities] = useState<OrganizationIdentity[]>(() => {
-    try {
-      const saved = localStorage.getItem(IDENTITIES_KEY);
-      if (saved) return JSON.parse(saved);
-    } catch {
-      // Ignore
-    }
-    return PRESET_ORGANIZATIONS;
-  });
-
-  const [activeIdentityId, setActiveIdentityId] = useState<string>(() => {
-    try {
-      const saved = localStorage.getItem(ACTIVE_IDENTITY_KEY);
-      if (saved && identities.some((i) => i.id === saved)) return saved;
-    } catch {
-      // Ignore
-    }
-    return 'org-tu-medio';
-  });
+  // Identity, branding and history belong to the active newsroom (Firestore), shared by its members.
+  const workspace = useOrganizationWorkspace();
+  const { identities, activeIdentityId, branding, history } = workspace;
 
   const [activeView, setActiveView] = useState<'generator' | 'identity'>('generator');
-
-  const [history, setHistory] = useState<GeneratedNewsResult[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) return JSON.parse(saved);
-    } catch {
-      // Ignore
-    }
-    return [];
-  });
 
   const [currentArticle, setCurrentArticle] = useState<NewsArticleData | null>(null);
   const [currentPosts, setCurrentPosts] = useState<SocialPostsOutput | null>(null);
@@ -102,7 +59,17 @@ function MainAppContent() {
   const [isIntegrationsOpen, setIsIntegrationsOpen] = useState(false);
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
 
-  const activeIdentity = identities.find((i) => i.id === activeIdentityId) || identities[0];
+  const activeIdentity: OrganizationIdentity =
+    identities.find((i) => i.id === activeIdentityId) ||
+    identities[0] ||
+    { ...DEFAULT_IDENTITY, name: organization?.name || DEFAULT_IDENTITY.name };
+
+  const persist = (action: Promise<void>, message: string) => {
+    action.catch((err) => {
+      console.error(message, err);
+      setError(`${message} Revisá tu conexión e intentá nuevamente.`);
+    });
+  };
 
   // Detect query params for billing redirects (success/pending/failure)
   useEffect(() => {
@@ -121,38 +88,6 @@ function MainAppContent() {
       window.history.replaceState({}, document.title, window.location.pathname);
     }
   }, [setIsBillingOpen]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(BRANDING_KEY, JSON.stringify(branding));
-    } catch {
-      // Ignore
-    }
-  }, [branding]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(IDENTITIES_KEY, JSON.stringify(identities));
-    } catch {
-      // Ignore
-    }
-  }, [identities]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(ACTIVE_IDENTITY_KEY, activeIdentityId);
-    } catch {
-      // Ignore
-    }
-  }, [activeIdentityId]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(history));
-    } catch {
-      // Ignore
-    }
-  }, [history]);
 
   const handleProcessUrl = async (url: string) => {
     if (!user) {
@@ -188,7 +123,7 @@ function MainAppContent() {
       setCurrentArticle(extractedArticle);
 
       // Step 2: Send to Gemini AI Editorial Model
-      setLoadingStep(`2/2. Editor IA aplicando ADN Editorial y Visual (${activeIdentity.editorial.editorialTone}, ${activeIdentity.editorial.emojiUsage})...`);
+      setLoadingStep(`2/2. Editor IA aplicando ADN Editorial y Visual (${activeIdentity.editorial.tone}, ${activeIdentity.editorial.emojiUsage})...`);
       const idempotencyKey = crypto.randomUUID();
       const genRes = await authFetch('/api/generate-posts', {
         method: 'POST',
@@ -219,7 +154,7 @@ function MainAppContent() {
         },
       };
 
-      setHistory((prev) => [newResult, ...prev.filter((h) => h.article.url !== extractedArticle.url)]);
+      persist(workspace.addHistoryItem(newResult, true), 'No se pudo guardar la noticia en el historial del medio.');
     } catch (err: any) {
       console.error('Processing error:', err);
       setError(err.message || 'Ocurrió un error inesperado durante la generación.');
@@ -292,7 +227,7 @@ function MainAppContent() {
         },
       };
 
-      setHistory((prev) => [newResult, ...prev]);
+      persist(workspace.addHistoryItem(newResult), 'No se pudo guardar la noticia en el historial del medio.');
     } catch (err: any) {
       console.error('Processing text error:', err);
       setError(err.message || 'Ocurrió un error inesperado durante el procesamiento.');
@@ -313,33 +248,41 @@ function MainAppContent() {
   };
 
   const handleClearHistory = () => {
-    setHistory([]);
+    persist(workspace.clearHistory(), 'No se pudo vaciar el historial.');
   };
 
   const handleDeleteHistoryItem = (id: string) => {
-    setHistory((prev) => prev.filter((item) => item.id !== id));
+    persist(workspace.deleteHistoryItem(id), 'No se pudo eliminar la noticia del historial.');
   };
 
   const handleSelectIdentity = (id: string) => {
-    setActiveIdentityId(id);
+    persist(workspace.setActiveIdentityId(id), 'No se pudo cambiar la identidad activa.');
   };
 
   const handleCreateIdentity = (newIdentity: OrganizationIdentity) => {
-    setIdentities((prev) => [...prev, newIdentity]);
-    setActiveIdentityId(newIdentity.id);
+    persist(
+      workspace.saveIdentity(newIdentity).then(() => workspace.setActiveIdentityId(newIdentity.id)),
+      'No se pudo guardar la nueva identidad.'
+    );
   };
 
   const handleUpdateIdentity = (updated: OrganizationIdentity) => {
-    setIdentities((prev) => prev.map((i) => (i.id === updated.id ? updated : i)));
+    persist(workspace.saveIdentity(updated), 'No se pudo guardar la identidad.');
   };
 
   const handleDeleteIdentity = (id: string) => {
     if (identities.length <= 1) return;
-    setIdentities((prev) => prev.filter((i) => i.id !== id));
-    if (activeIdentityId === id) {
-      const remaining = identities.filter((i) => i.id !== id);
-      setActiveIdentityId(remaining[0].id);
-    }
+    const remaining = identities.filter((i) => i.id !== id);
+    persist(
+      (activeIdentityId === id ? workspace.setActiveIdentityId(remaining[0].id) : Promise.resolve()).then(() =>
+        workspace.deleteIdentity(id)
+      ),
+      'No se pudo eliminar la identidad.'
+    );
+  };
+
+  const handleSaveBranding = (next: OutletBranding) => {
+    persist(workspace.saveBranding(next), 'No se pudo guardar la marca del medio.');
   };
 
   return (
@@ -357,6 +300,8 @@ function MainAppContent() {
           onOpenAdmin={() => setIsAdminModalOpen(true)}
           savedCount={history.length}
         />
+
+        <EmailVerificationBanner />
 
         {/* View 1: Generator Dashboard */}
         {activeView === 'generator' && (
@@ -447,7 +392,7 @@ function MainAppContent() {
         isOpen={isBrandingOpen}
         onClose={() => setIsBrandingOpen(false)}
         branding={branding}
-        onSaveBranding={setBranding}
+        onSaveBranding={handleSaveBranding}
       />
 
       <HistoryDrawer

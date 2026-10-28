@@ -164,3 +164,34 @@ test('invites are never readable or writable from the client', async () => {
   await assertFails(getDoc(doc(as('dave', 'dave@example.test'), 'invites/dave@example.test')));
   await assertFails(setDoc(doc(as('mallory'), 'invites/mallory@example.test'), { orgId: 'org_bob' }));
 });
+
+// --- Shared workspace (identities, history, branding) ---
+
+test('members share the newsroom workspace: identities, history, branding and active identity', async () => {
+  await seed();
+  for (const uid of ['bob', 'carol']) {
+    const db = as(uid);
+    await assertSucceeds(setDoc(doc(db, `organizations/org_bob/identities/id-${uid}`), { name: 'Bob Media', updatedAt: 'now' }));
+    await assertSucceeds(getDocs(collection(db, 'organizations/org_bob/identities')));
+    await assertSucceeds(deleteDoc(doc(db, `organizations/org_bob/identities/id-${uid}`)));
+    await assertSucceeds(setDoc(doc(db, `organizations/org_bob/history/news-${uid}`), { createdAt: 'now', article: { title: 't' } }));
+    await assertSucceeds(getDocs(collection(db, 'organizations/org_bob/history')));
+    await assertSucceeds(deleteDoc(doc(db, `organizations/org_bob/history/news-${uid}`)));
+    await assertSucceeds(updateDoc(doc(db, 'organizations/org_bob'), { activeIdentityId: `id-${uid}`, branding: { name: 'Bob', accentColor: '#000' } }));
+  }
+});
+
+test('another tenant cannot read or write a newsroom workspace', async () => {
+  await seed();
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'organizations/org_bob/identities/main'), { name: 'Bob Media' });
+    await setDoc(doc(ctx.firestore(), 'organizations/org_bob/history/n1'), { createdAt: 'now' });
+  });
+  const db = as('alice');
+  await assertFails(getDoc(doc(db, 'organizations/org_bob/identities/main')));
+  await assertFails(getDocs(collection(db, 'organizations/org_bob/identities')));
+  await assertFails(setDoc(doc(db, 'organizations/org_bob/identities/main'), { name: 'Hijacked' }));
+  await assertFails(getDocs(collection(db, 'organizations/org_bob/history')));
+  await assertFails(setDoc(doc(db, 'organizations/org_bob/history/n2'), { createdAt: 'now' }));
+  await assertFails(deleteDoc(doc(db, 'organizations/org_bob/history/n1')));
+});

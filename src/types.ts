@@ -150,6 +150,8 @@ export interface OrganizationIdentity {
   activeOfficialTemplateId?: string;
   activeOfficialTemplateName?: string;
   activeOfficialTemplateCustomization?: any;
+  /** Saved customization per official template id, shared by the whole newsroom. */
+  templateCustomizations?: Record<string, any>;
   sampleImagesCount: number;
   sampleCaptionsCount: number;
   isTrained: boolean;

@@ -4,6 +4,7 @@ import {
   onAuthStateChanged,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
+  sendEmailVerification,
   signOut as firebaseSignOut,
 } from 'firebase/auth';
 import { getClientAuth, getFirebaseApp } from '../lib/firebase';
@@ -47,6 +48,11 @@ interface AuthContextType {
   registerWithEmail: (email: string, pass: string) => Promise<void>;
   loginWithEmail: (email: string, pass: string) => Promise<void>;
   logout: () => Promise<void>;
+  /** Whether the signed-in email address is verified (required to join a shared newsroom). */
+  emailVerified: boolean;
+  resendVerificationEmail: () => Promise<void>;
+  /** Reloads the account after the user clicked the email link; joins any pending newsroom invite. */
+  confirmEmailVerified: () => Promise<boolean>;
   authFetch: (url: string, options?: RequestInit) => Promise<Response>;
   getToken: () => Promise<string | null>;
 }
@@ -62,6 +68,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isBillingOpen, setIsBillingOpen] = useState<boolean>(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
   const registrationInProgressRef = useRef(false);
+  const syncedUidRef = useRef<string | null>(null);
+  const [emailVerified, setEmailVerified] = useState(false);
+
+  // Idempotent server sync on every sign-in: repairs the account and joins pending newsroom invites.
+  // Best effort: a failure here must never block signing in.
+  const syncAccount = useCallback(async (account: User, forceRefresh = false) => {
+    if (!forceRefresh && syncedUidRef.current === account.uid) return;
+    syncedUidRef.current = account.uid;
+    try {
+      const token = await account.getIdToken(forceRefresh);
+      const res = await fetch('/api/auth/bootstrap', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) console.warn('Account sync returned status', res.status);
+    } catch (err) {
+      console.warn('Account sync failed:', err);
+    }
+  }, []);
 
   useEffect(() => {
     getFirebaseApp().catch((err) => console.error('Firebase init error:', err));
@@ -103,12 +128,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const auth = getClientAuth();
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
+      setEmailVerified(Boolean(currentUser?.emailVerified));
       if (currentUser) {
         if (registrationInProgressRef.current) return;
+        await syncAccount(currentUser);
         setOrganizationReady(true);
         setBootstrapOrganization(null);
         await refreshBillingProfile();
       } else {
+        syncedUidRef.current = null;
         setBillingProfile(null);
         setOrganizationReady(false);
         setBootstrapOrganization(null);
@@ -117,7 +145,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
 
     return () => unsubscribe();
-  }, [refreshBillingProfile]);
+  }, [refreshBillingProfile, syncAccount]);
 
   const registerWithEmail = async (email: string, pass: string) => {
     const auth = getClientAuth();
@@ -139,7 +167,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     try {
       const result = await bootstrapRegistration(userCredential.user);
+      syncedUidRef.current = userCredential.user.uid;
       registrationInProgressRef.current = false;
+      sendEmailVerification(userCredential.user).catch((err) =>
+        console.warn('Could not send the verification email:', err)
+      );
       setUser(userCredential.user);
       setBootstrapOrganization(result.organization);
       setOrganizationReady(true);
@@ -158,10 +190,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const loginWithEmail = async (email: string, pass: string) => {
     const auth = getClientAuth();
     const userCredential = await signInWithEmailAndPassword(auth, email, pass);
+    await syncAccount(userCredential.user);
     setUser(userCredential.user);
+    setEmailVerified(userCredential.user.emailVerified);
     setBootstrapOrganization(null);
     setOrganizationReady(true);
     await refreshBillingProfile();
+  };
+
+  const resendVerificationEmail = async () => {
+    const current = getClientAuth().currentUser;
+    if (!current) return;
+    await sendEmailVerification(current);
+  };
+
+  const confirmEmailVerified = async () => {
+    const current = getClientAuth().currentUser;
+    if (!current) return false;
+    await current.reload();
+    setEmailVerified(current.emailVerified);
+    if (current.emailVerified) {
+      // A fresh token carries email_verified=true, which the server requires to accept invites.
+      await syncAccount(current, true);
+    }
+    return current.emailVerified;
   };
 
   const logout = async () => {
@@ -219,6 +271,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         registerWithEmail,
         loginWithEmail,
         logout,
+        emailVerified,
+        resendVerificationEmail,
+        confirmEmailVerified,
         authFetch,
         getToken,
       }}

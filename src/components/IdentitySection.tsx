@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   Building2,
   Upload,
@@ -18,7 +18,6 @@ import {
   OrganizationIdentity,
   OrgType,
   DEFAULT_TRIAL_PUBLICATION_LIMIT,
-  CustomMediaTemplate,
 } from '../types';
 import { useOrganization } from '../hooks/useOrganization';
 import { HermesTemplatesGallery } from './HermesTemplatesGallery';
@@ -53,22 +52,6 @@ export const IdentitySection: React.FC<IdentitySectionProps> = ({
 
   const [activeTab, setActiveTab] = useState<'profile' | 'logo' | 'editorial' | 'templates'>('profile');
   const [notification, setNotification] = useState<string | null>(null);
-
-  // Custom Templates State
-  const [, setCustomTemplates] = useState<CustomMediaTemplate[]>([]);
-
-  // Load custom templates from localStorage
-  useEffect(() => {
-    const storageKey = `hermes_custom_templates_${organization?.id || currentIdentity?.id || 'default'}`;
-    const saved = localStorage.getItem(storageKey);
-    if (saved) {
-      try {
-        setCustomTemplates(JSON.parse(saved));
-      } catch (err) {
-        console.error('Error loading custom templates:', err);
-      }
-    }
-  }, [organization?.id, currentIdentity?.id]);
 
   const showToast = (msg: string) => {
     setNotification(msg);

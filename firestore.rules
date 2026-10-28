@@ -58,8 +58,19 @@ service cloud.firestore {
           'activeOfficialTemplateId',
           'activeOfficialTemplateName',
           'activeOfficialTemplateCustomization',
+          'activeIdentityId',
+          'branding',
           'updatedAt'
         ]);
+
+      // Shared newsroom workspace: every member reads and edits the same identities and history.
+      match /identities/{identityId} {
+        allow read, write: if canAccessOrgId(orgId);
+      }
+
+      match /history/{newsId} {
+        allow read, write: if canAccessOrgId(orgId);
+      }
 
       match /privateMetaTokens/{tokenDoc} {
         allow read, write: if false;

@@ -46,8 +46,6 @@ export const VisualCardPreview: React.FC<VisualCardPreviewProps> = ({
   activeIdentity,
 }) => {
   const cardRef = useRef<HTMLDivElement>(null);
-  const orgId = activeIdentity?.id || 'default';
-  const activeTemplateStorageKey = `hermes_active_official_template_${orgId}`;
 
   // 1. ACTIVE TEMPLATE & CUSTOMIZATION STATE
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('hermes-editorial');
@@ -130,20 +128,7 @@ export const VisualCardPreview: React.FC<VisualCardPreviewProps> = ({
   // 5. LOAD ACTIVE TEMPLATE FROM IDENTITY / STORAGE ON INITIALIZATION
   useEffect(() => {
     try {
-      // 1. First check localStorage active template
-      const saved = localStorage.getItem(activeTemplateStorageKey);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed.templateId) {
-          setSelectedTemplateId(parsed.templateId);
-        }
-        if (parsed.customization) {
-          setCustomization(parsed.customization);
-          return;
-        }
-      }
-
-      // 2. Check active identity in memory
+      // 1. Active template saved on the newsroom identity
       if (activeIdentity?.activeOfficialTemplateId) {
         setSelectedTemplateId(activeIdentity.activeOfficialTemplateId);
         if (activeIdentity.activeOfficialTemplateCustomization) {
@@ -152,7 +137,7 @@ export const VisualCardPreview: React.FC<VisualCardPreviewProps> = ({
         }
       }
 
-      // 3. Fallback to default editorial template with brand colors
+      // 2. Fallback to default editorial template with brand colors
       const defaultTmpl = HERMES_OFFICIAL_TEMPLATES[0];
       setCustomization({
         ...defaultTmpl.defaultCustomization,
@@ -162,23 +147,17 @@ export const VisualCardPreview: React.FC<VisualCardPreviewProps> = ({
     } catch (err) {
       console.error('Error initializing template configuration in VisualCardPreview:', err);
     }
-  }, [orgId, activeTemplateStorageKey, activeIdentity, branding.primaryColor]);
+  }, [activeIdentity, branding.primaryColor]);
 
   // Handle template selection in generator
   const handleSelectTemplate = (template: HermesOfficialTemplate) => {
     setSelectedTemplateId(template.id);
 
     // Check if we have specific saved customization for this template
-    const templateSpecificKey = `hermes_tmpl_custom_${orgId}_${template.id}`;
-    const savedSpecific = localStorage.getItem(templateSpecificKey);
-
+    const savedSpecific = activeIdentity?.templateCustomizations?.[template.id];
     if (savedSpecific) {
-      try {
-        setCustomization(JSON.parse(savedSpecific));
-        return;
-      } catch (err) {
-        console.error('Error loading specific template customization:', err);
-      }
+      setCustomization(savedSpecific);
+      return;
     }
 
     // Otherwise apply template defaults with media colors

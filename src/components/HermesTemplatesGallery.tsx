@@ -31,8 +31,6 @@ export const HermesTemplatesGallery: React.FC<HermesTemplatesGalleryProps> = ({
   showToast,
 }) => {
   const { organization, updateOrganization } = useOrganization();
-  const orgId = organization?.id || currentIdentity?.id || 'default';
-  const storageKey = `hermes_active_official_template_${orgId}`;
 
   // Active Template ID stored in settings or fallback to 'hermes-editorial'
   const [activeTemplateId, setActiveTemplateId] = useState<string>('hermes-editorial');
@@ -70,17 +68,7 @@ export const HermesTemplatesGallery: React.FC<HermesTemplatesGalleryProps> = ({
   // Load saved active template & customizations on mount
   useEffect(() => {
     try {
-      const saved = localStorage.getItem(storageKey);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed.templateId) {
-          setActiveTemplateId(parsed.templateId);
-          setSelectedTemplateId(parsed.templateId);
-        }
-        if (parsed.customization) {
-          setCustomization(parsed.customization);
-        }
-      } else if (currentIdentity?.activeOfficialTemplateId) {
+      if (currentIdentity?.activeOfficialTemplateId) {
         setActiveTemplateId(currentIdentity.activeOfficialTemplateId);
         setSelectedTemplateId(currentIdentity.activeOfficialTemplateId);
         if (currentIdentity.activeOfficialTemplateCustomization) {
@@ -98,7 +86,7 @@ export const HermesTemplatesGallery: React.FC<HermesTemplatesGalleryProps> = ({
     } catch (e) {
       console.error('Error loading active official template:', e);
     }
-  }, [orgId, storageKey, currentIdentity]);
+  }, [currentIdentity]);
 
   // When switching selected template, update customization state
   const handleSelectTemplate = (template: HermesOfficialTemplate) => {
@@ -120,16 +108,10 @@ export const HermesTemplatesGallery: React.FC<HermesTemplatesGalleryProps> = ({
     }
 
     // Check if we have saved customization for this template
-    const templateSpecificKey = `hermes_tmpl_custom_${orgId}_${template.id}`;
-    const savedSpecific = localStorage.getItem(templateSpecificKey);
-
+    const savedSpecific = currentIdentity?.templateCustomizations?.[template.id];
     if (savedSpecific) {
-      try {
-        setCustomization(JSON.parse(savedSpecific));
-        return;
-      } catch (err) {
-        console.error('Error loading specific template customization:', err);
-      }
+      setCustomization(savedSpecific);
+      return;
     }
 
     // Otherwise apply default with media brand colors
@@ -147,21 +129,13 @@ export const HermesTemplatesGallery: React.FC<HermesTemplatesGalleryProps> = ({
 
     setActiveTemplateId(selectedTemplateId);
 
-    // 1. Save to localStorage
-    const payload = {
-      templateId: selectedTemplateId,
-      templateName: selectedTemplate.name,
-      customization,
-      updatedAt: new Date().toISOString(),
-    };
-    localStorage.setItem(storageKey, JSON.stringify(payload));
-
-    // Also save template specific customization
-    localStorage.setItem(`hermes_tmpl_custom_${orgId}_${selectedTemplateId}`, JSON.stringify(customization));
-
-    // 2. Update current identity in state & parent
+    // The identity is stored in the newsroom workspace, so every member gets the same template.
     const updatedIdentity: OrganizationIdentity = {
       ...currentIdentity,
+      templateCustomizations: {
+        ...(currentIdentity.templateCustomizations || {}),
+        [selectedTemplateId]: customization,
+      },
       activeOfficialTemplateId: selectedTemplateId,
       activeOfficialTemplateName: selectedTemplate.name,
       activeOfficialTemplateCustomization: customization,
