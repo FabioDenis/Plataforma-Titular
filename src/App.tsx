@@ -28,6 +28,10 @@ import { DEFAULT_IDENTITY } from './data/sampleIdentities';
 import { useOrganizationWorkspace } from './hooks/useOrganizationWorkspace';
 import { Newspaper, CheckCircle2, Building2 } from 'lucide-react';
 
+// Clients pay a flat fee and never see balances; Titular keeps the organization topped up.
+const GENERATION_PAUSED_MESSAGE =
+  'La generación de contenidos de tu medio está pausada en este momento. Contactá al equipo de Titular para reactivarla.';
+
 function MainAppContent() {
   const {
     user,
@@ -36,6 +40,7 @@ function MainAppContent() {
     setIsBillingOpen,
     isAuthModalOpen,
     setIsAuthModalOpen,
+    isAdmin,
   } = useAuth();
 
   const { organization } = useOrganization();
@@ -98,7 +103,8 @@ function MainAppContent() {
     const pubLimit = organization?.publicationLimit ?? DEFAULT_TRIAL_PUBLICATION_LIMIT;
     const pubUsed = organization?.publicationUsed ?? 0;
     if (pubUsed >= pubLimit) {
-      setIsBillingOpen(true);
+      if (isAdmin) setIsBillingOpen(true);
+      else setError(GENERATION_PAUSED_MESSAGE);
       return;
     }
 
@@ -133,6 +139,10 @@ function MainAppContent() {
           identity: activeIdentity,
         }),
       });
+
+      if (genRes.status === 402 && !isAdmin) {
+        throw new Error(GENERATION_PAUSED_MESSAGE);
+      }
 
       if (!genRes.ok) {
         const errData = await genRes.json();
@@ -173,7 +183,8 @@ function MainAppContent() {
     const pubLimit = organization?.publicationLimit ?? DEFAULT_TRIAL_PUBLICATION_LIMIT;
     const pubUsed = organization?.publicationUsed ?? 0;
     if (pubUsed >= pubLimit) {
-      setIsBillingOpen(true);
+      if (isAdmin) setIsBillingOpen(true);
+      else setError(GENERATION_PAUSED_MESSAGE);
       return;
     }
 
@@ -206,6 +217,10 @@ function MainAppContent() {
           identity: activeIdentity,
         }),
       });
+
+      if (genRes.status === 402 && !isAdmin) {
+        throw new Error(GENERATION_PAUSED_MESSAGE);
+      }
 
       if (!genRes.ok) {
         const errData = await genRes.json();

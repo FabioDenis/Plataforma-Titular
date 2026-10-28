@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { X, Mail, Lock, UserPlus, LogIn, AlertCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { DEFAULT_TRIAL_PUBLICATION_LIMIT } from '../types';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -86,8 +85,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
           </h2>
           <p className="mt-1 text-xs text-brand-navy/60">
             {isRegister
-              ? `Registrate para recibir ${DEFAULT_TRIAL_PUBLICATION_LIMIT} publicaciones de prueba gratuitas`
-              : 'Ingresá a tu cuenta para gestionar tus publicaciones y plan mensual'}
+              ? 'Creá tu cuenta con el email de tu medio'
+              : 'Ingresá a tu cuenta para gestionar las publicaciones de tu medio'}
           </p>
         </div>
 

@@ -69,6 +69,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
   const registrationInProgressRef = useRef(false);
   const syncedUidRef = useRef<string | null>(null);
+  const billingProfileRef = useRef<BillingProfileState | null>(null);
+  billingProfileRef.current = billingProfile;
   const [emailVerified, setEmailVerified] = useState(false);
 
   // Idempotent server sync on every sign-in: repairs the account and joins pending newsroom invites.
@@ -242,7 +244,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       const res = await fetch(url, { ...options, headers });
 
-      if (res.status === 402) {
+      // Clients pay a flat fee: only platform admins are sent to billing when a balance runs out.
+      if (res.status === 402 && billingProfileRef.current?.isAdmin) {
         await refreshBillingProfile();
         setIsBillingOpen(true);
       }

@@ -110,7 +110,8 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Right: Balance, Organization & User Menu */}
         <div className="flex items-center gap-3 shrink-0">
-          {/* Usage Counter: Uso X / Y - Always rendered stably without layout shifts */}
+          {/* Usage Counter: platform admins only. Clients pay a flat fee and never see balances. */}
+          {isAdmin && (
           <button
             type="button"
             onClick={() => setIsBillingOpen(true)}
@@ -125,6 +126,7 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="inline-block h-1.5 w-1.5 rounded-full bg-brand-primary animate-pulse" />
             )}
           </button>
+          )}
 
           {/* Active Organization Selector */}
           <button
@@ -176,6 +178,7 @@ export const Header: React.FC<HeaderProps> = ({
                       <span>Configurar Organización</span>
                     </button>
 
+                    {isAdmin && (
                     <button
                       type="button"
                       onClick={() => {
@@ -187,6 +190,7 @@ export const Header: React.FC<HeaderProps> = ({
                       <CreditCard className="h-3.5 w-3.5 text-brand-navy/60 shrink-0" />
                       <span>Planes y Facturación</span>
                     </button>
+                    )}
 
                     {isAdmin && onOpenAdmin && (
                       <button
