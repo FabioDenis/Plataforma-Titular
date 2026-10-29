@@ -1,6 +1,5 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { getAdminAuth, getAdminDb } from './firebase-admin';
-import { DEFAULT_TRIAL_PUBLICATION_LIMIT } from './billing';
 
 /**
  * Organization membership (team accounts).
@@ -14,6 +13,7 @@ import { DEFAULT_TRIAL_PUBLICATION_LIMIT } from './billing';
 export type MembershipErrorCode =
   | 'INVALID_EMAIL'
   | 'INVALID_NAME'
+  | 'INVALID_STATUS'
   | 'ORGANIZATION_NOT_FOUND'
   | 'ALREADY_OWNER'
   | 'OWNER_CANNOT_BE_REMOVED'
@@ -57,7 +57,7 @@ function membersOf(data: FirebaseFirestore.DocumentData | undefined): string[] {
   return Array.isArray(data?.members) ? data!.members.filter((m: unknown) => typeof m === 'string') : [];
 }
 
-async function requireOrganization(orgId: unknown) {
+export async function requireOrganization(orgId: unknown) {
   if (typeof orgId !== 'string' || !orgId.trim() || orgId.includes('/')) {
     throw new MembershipError('ORGANIZATION_NOT_FOUND');
   }
@@ -225,10 +225,9 @@ export async function createManagedOrganization(input: { name: unknown; adminUid
     name,
     ownerUid: '',
     members: [],
-    plan: 'trial',
-    publicationLimit: DEFAULT_TRIAL_PUBLICATION_LIMIT,
     publicationUsed: 0,
-    status: 'Activa',
+    // In preparation until the admin activates it; the team cannot generate before that.
+    status: 'draft',
     orgType: 'Medio Digital',
     createdAt: new Date().toISOString(),
     createdByAdminUid: input.adminUid,

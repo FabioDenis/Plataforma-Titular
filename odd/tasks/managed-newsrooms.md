@@ -16,7 +16,7 @@ Branch: `feat/managed-newsrooms` · Delivery: ask-on-risk · Runner: `npm run te
 ## Tasks
 
 - T1 [S1,S2,S6] Server: remove per-newsroom credit enforcement; lifecycle + no-organization guard on every AI operation; daily cap on posts; error mapping; tests. Route: inline. Status: done (4 RED->GREEN; flaky limit test replaced by deterministic daily-cap test).
-- T2 [S2,S4,S7] Server: admin newsroom list with consumption, per-newsroom monthly usage, lifecycle endpoint; managed newsrooms start as draft; tests. Route: inline.
+- T2 [S2,S4,S7] Server: admin newsroom list with consumption, per-newsroom monthly usage, lifecycle endpoint; managed newsrooms start as draft; tests. Route: inline. Status: done (6 tests; list sorted by monthly consumption, statusEvents audit trail).
 - T3 [S5] Server + client: invitation-only accounts (server creates the Auth user and attaches it; admin UI sends the set-password email; public sign-up removed from UI; bootstrap no longer creates trial newsrooms for unknown accounts); tests. Route: inline.
 - T4 [S1,S4,S7] Client: newsroom-centric admin panel; remove every credit/billing UI. Route: inline.
 - T5 [S4] Gemini pricing table so estimated cost is filled (needs verified current prices). Route: inline.

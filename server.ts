@@ -65,6 +65,7 @@ import {
   removeOrganizationMember,
 } from './server/organization-members';
 import { OrganizationAccessError } from './server/organization-lifecycle';
+import { getOrganizationUsageHistory, listManagedOrganizations, setOrganizationLifecycle } from './server/organization-admin';
 
 // Safe resolution for __dirname in both CJS bundle and ESM environments
 const getCurrentDir = (): string => {
@@ -502,6 +503,7 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
     const membershipErrorResponses: Record<string, [number, string]> = {
       INVALID_EMAIL: [400, 'Ingresá un email válido.'],
       INVALID_NAME: [400, 'Ingresá el nombre del medio (hasta 120 caracteres).'],
+      INVALID_STATUS: [400, 'Estado inválido. Usá: en preparación, activo o suspendido.'],
       ORGANIZATION_NOT_FOUND: [404, 'El medio no existe.'],
       ALREADY_OWNER: [409, 'Esa cuenta ya es la dueña de este medio.'],
       OWNER_CANNOT_BE_REMOVED: [409, 'No se puede quitar a la cuenta dueña del medio.'],
@@ -531,6 +533,36 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
         return res.json({ organizationId });
       } catch (err) {
         return sendMembershipError(res, err, 'Error al crear el medio.');
+      }
+    });
+
+    // API Routes: newsroom list with consumption, monthly usage and lifecycle (platform admins only)
+    app.get('/api/admin/organizations', verifyFirebaseAuth as any, async (req: AuthenticatedRequest, res) => {
+      try {
+        if (!(await requirePlatformAdmin(req, res))) return;
+        const month = typeof req.query.month === 'string' && /^\d{4}-\d{2}$/.test(req.query.month) ? req.query.month : undefined;
+        return res.json({ organizations: await listManagedOrganizations(month) });
+      } catch (err) {
+        return sendMembershipError(res, err, 'Error al consultar los medios.');
+      }
+    });
+
+    app.get('/api/admin/organizations/:orgId/usage', verifyFirebaseAuth as any, async (req: AuthenticatedRequest, res) => {
+      try {
+        if (!(await requirePlatformAdmin(req, res))) return;
+        return res.json({ usage: await getOrganizationUsageHistory(req.params.orgId) });
+      } catch (err) {
+        return sendMembershipError(res, err, 'Error al consultar el consumo del medio.');
+      }
+    });
+
+    app.post('/api/admin/organizations/:orgId/status', verifyFirebaseAuth as any, async (req: AuthenticatedRequest, res) => {
+      try {
+        if (!(await requirePlatformAdmin(req, res))) return;
+        await setOrganizationLifecycle({ orgId: req.params.orgId, status: req.body?.status, adminUid: req.user!.uid });
+        return res.json({ success: true });
+      } catch (err) {
+        return sendMembershipError(res, err, 'Error al cambiar el estado del medio.');
       }
     });
 

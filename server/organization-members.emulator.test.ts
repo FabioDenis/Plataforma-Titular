@@ -187,14 +187,14 @@ test('a rejected owner removal leaves every document untouched', async () => {
 
 // --- Newsrooms managed by the platform admin ---
 
-test('an admin creates an ownerless newsroom with the trial balance and then adds the client accounts', async () => {
+test('an admin creates an ownerless newsroom in preparation and then adds the client accounts', async () => {
   const orgId = await createManagedOrganization({ name: '  Radio Sol  ', adminUid: 'platform-admin' });
   const db = getAdminDb();
   const org = (await db.doc(`organizations/${orgId}`).get()).data()!;
   assert.equal(org.name, 'Radio Sol');
   assert.equal(org.ownerUid, '');
   assert.deepEqual(org.members, []);
-  assert.equal(org.publicationLimit, 3);
+  assert.equal(org.status, 'draft');
   assert.equal(org.publicationUsed, 0);
   assert.equal(org.createdByAdminUid, 'platform-admin');
 
