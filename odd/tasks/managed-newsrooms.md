@@ -19,7 +19,7 @@ Branch: `feat/managed-newsrooms` · Delivery: ask-on-risk · Runner: `npm run te
 - T2 [S2,S4,S7] Server: admin newsroom list with consumption, per-newsroom monthly usage, lifecycle endpoint; managed newsrooms start as draft; tests. Route: inline. Status: done (6 tests; list sorted by monthly consumption, statusEvents audit trail).
 - T3 [S5] Server + client: invitation-only accounts (server creates the Auth user and attaches it; admin UI sends the set-password email; public sign-up removed from UI; bootstrap no longer creates trial newsrooms for unknown accounts); tests. Route: inline. Status: done (2 RED->GREEN; client: tsc + build). Needs IAM roles/firebaseauth.admin for createUser.
 - T4 [S1,S4,S7] Client: newsroom-centric admin panel; remove every credit/billing UI. Route: inline. Status: done (tsc + build; no client test runner).
-- T5 [S4] Gemini pricing table so estimated cost is filled (needs verified current prices). Route: inline.
+- T5 [S4] Gemini pricing table so estimated cost is filled (needs verified current prices). Route: inline. Status: done (official prices 2026-10-28, dated schedule incl. 2027 increase, GEMINI_PRICING_JSON override; 2 RED->GREEN).
 
 ## Log
 
@@ -27,3 +27,4 @@ Branch: `feat/managed-newsrooms` · Delivery: ask-on-risk · Runner: `npm run te
 - L2 (2026-10-29) User approved the proposal (lifecycle, invitation-only, daily cap, newsroom-centric panel): "me cierra si, hazlo".
 - L3 Evidence: per-newsroom limit enforced at `server/ai-generations.ts:122-126` (3 by default) would pause every newsroom after 3 posts; monthly usage already aggregated at `organizations/{orgId}/aiUsageMonthly/{YYYY-MM}`; `GEMINI_PRICING` is empty (`server/gemini.ts:63`), so cost is null.
 - L4 Invitation-only needs the Cloud Run service account to create Auth users (`roles/firebaseauth.admin`; today `roles/firebaseauth.viewer`) — IAM change the user must run.
+- L5 Engram MCP disconnected during this feature: Engram mirror pending (local document is the source of truth).

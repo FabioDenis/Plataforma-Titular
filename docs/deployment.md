@@ -74,16 +74,13 @@ no local Docker required:
 PROJECT_ID=titular-53a66
 REGION=southamerica-east1
 
-gcloud run deploy titular-api \
-  --project "$PROJECT_ID" \
-  --source . \
-  --region "$REGION" \
-  --service-account "titular-api@$PROJECT_ID.iam.gserviceaccount.com" \
-  --allow-unauthenticated \
-  --max-instances 1 \
-  --set-env-vars "NODE_ENV=production,APP_URL=https://titular.com.ar,FIRESTORE_DATABASE_ID=(default),MERCADOPAGO_REQUIRE_SIGNATURE=true" \
-  --set-secrets "GEMINI_API_KEY=GEMINI_API_KEY:latest,MERCADOPAGO_ACCESS_TOKEN=MERCADOPAGO_ACCESS_TOKEN:latest,MERCADOPAGO_WEBHOOK_SECRET=MERCADOPAGO_WEBHOOK_SECRET:latest,META_APP_SECRET=META_APP_SECRET:latest,META_TOKEN_ENCRYPTION_KEY=META_TOKEN_ENCRYPTION_KEY:latest"
+# Routine deploy: keeps the current env vars, secrets and service account.
+gcloud run deploy titular-api --project "$PROJECT_ID" --region "$REGION" --source . --quiet
 ```
+
+Warning: never add `--set-env-vars` / `--set-secrets` to a routine deploy. They **replace** the
+whole list, which drops `ADMIN_EMAILS` and `TRIAL_PUBLICATIONS` and requires secrets that do not exist.
+Change one variable with `gcloud run services update titular-api --update-env-vars KEY=VALUE`.
 
 Boot note: `server/config/env.ts` validates startup secrets and exits(1) if
 `GEMINI_API_KEY` (and other required vars) are missing — secrets must exist

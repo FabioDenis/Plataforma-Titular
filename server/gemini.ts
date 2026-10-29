@@ -58,12 +58,45 @@ type Sleep = (ms: number) => Promise<void>;
 type Client = { models: { generateContent: (request: any) => Promise<any> } };
 
 type ModelPricing = { inputPerMillionUsd: number; outputPerMillionUsd: number; thinkingPerMillionUsd?: number };
+type PricingPeriod = { from: string; version: string; models: Record<string, ModelPricing> };
 
-// Populate only from a verified provider price source; null deliberately means unconfigured.
-export const GEMINI_PRICING: { version: string | null; models: Record<string, ModelPricing> } = {
-  version: null,
-  models: {},
-};
+// Populate only from a verified provider price source. Each period applies from its `from` date (UTC)
+// until the next one. Source: https://ai.google.dev/gemini-api/docs/pricing (last updated 2026-10-28),
+// Standard paid tier, text input; thinking tokens are billed at the output price.
+// Override without a code change with GEMINI_PRICING_JSON (same array shape).
+export const GEMINI_PRICING_SCHEDULE: PricingPeriod[] = [
+  {
+    from: '2026-01-01',
+    version: 'gemini-api-pricing-2026-10-28',
+    models: { 'gemini-3.6-flash': { inputPerMillionUsd: 0.75, outputPerMillionUsd: 3.75 } },
+  },
+  {
+    from: '2027-01-01',
+    version: 'gemini-api-pricing-2026-10-28',
+    models: { 'gemini-3.6-flash': { inputPerMillionUsd: 1.5, outputPerMillionUsd: 7.5 } },
+  },
+];
+
+function pricingSchedule(): PricingPeriod[] {
+  const override = getOptionalServerEnv('GEMINI_PRICING_JSON');
+  if (!override) return GEMINI_PRICING_SCHEDULE;
+  try {
+    const parsed = JSON.parse(override);
+    if (Array.isArray(parsed)) return parsed;
+  } catch {
+    // Fall through: an invalid override must not break generation.
+  }
+  console.warn('[gemini] GEMINI_PRICING_JSON is invalid; using the built-in price schedule.');
+  return GEMINI_PRICING_SCHEDULE;
+}
+
+function pricingFor(model: string, at: Date): { version: string; pricing: ModelPricing } | null {
+  const day = at.toISOString().slice(0, 10);
+  const period = pricingSchedule()
+    .filter((p) => typeof p?.from === 'string' && p.from <= day && p.models?.[model])
+    .sort((a, b) => b.from.localeCompare(a.from))[0];
+  return period ? { version: period.version, pricing: period.models[model] } : null;
+}
 
 export function getGeminiModels(): string[] {
   const configuredPrimary = getOptionalServerEnv('GEMINI_PRIMARY_MODEL', 'gemini-3.6-flash');
@@ -98,17 +131,22 @@ export function calculateBackoffMs(retryCount: number, random = Math.random): nu
   return Math.round(capped * (0.75 + random() * 0.5));
 }
 
-export function calculateEstimatedCostUsd(model: string, usage: GeminiUsage): { pricingVersion: string | null; estimatedCostUsd: number | null } {
-  const pricing = GEMINI_PRICING.models[model];
-  if (!pricing || !GEMINI_PRICING.version || usage.totalTokens === null) {
+export function calculateEstimatedCostUsd(
+  model: string,
+  usage: GeminiUsage,
+  at: Date = new Date()
+): { pricingVersion: string | null; estimatedCostUsd: number | null } {
+  const price = pricingFor(model, at);
+  if (!price || usage.totalTokens === null) {
     return { pricingVersion: null, estimatedCostUsd: null };
   }
+  const { pricing } = price;
   const estimatedCostUsd = (
     ((usage.inputTokens || 0) * pricing.inputPerMillionUsd) +
     ((usage.outputTokens || 0) * pricing.outputPerMillionUsd) +
     ((usage.thinkingTokens || 0) * (pricing.thinkingPerMillionUsd || pricing.outputPerMillionUsd))
   ) / 1_000_000;
-  return { pricingVersion: GEMINI_PRICING.version, estimatedCostUsd };
+  return { pricingVersion: price.version, estimatedCostUsd };
 }
 
 export function normalizeUsageMetadata(metadata: any): GeminiUsage {
