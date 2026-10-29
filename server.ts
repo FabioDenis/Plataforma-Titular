@@ -64,6 +64,7 @@ import {
   MembershipError,
   removeOrganizationMember,
 } from './server/organization-members';
+import { OrganizationAccessError } from './server/organization-lifecycle';
 
 // Safe resolution for __dirname in both CJS bundle and ESM environments
 const getCurrentDir = (): string => {
@@ -228,12 +229,19 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
       }
     }
 
+    const organizationAccessMessages: Record<OrganizationAccessError['code'], string> = {
+      NO_ORGANIZATION: 'Tu cuenta no está asociada a ningún medio. Pedile acceso al equipo de Titular.',
+      ORGANIZATION_NOT_ACTIVE: 'Tu medio todavía está en preparación. El equipo de Titular te va a avisar cuando esté listo.',
+      ORGANIZATION_SUSPENDED: 'El acceso de tu medio está suspendido. Contactá al equipo de Titular.',
+      DAILY_LIMIT_REACHED: 'Tu medio alcanzó el máximo de publicaciones de hoy. Vas a poder seguir mañana.',
+    };
+
     function sendAiError(res: any, error: any, fallbackMessage: string) {
       if (error instanceof GenerationStateError) {
         return res.status(409).json({ code: error.code, generationId: error.generationId, error: 'La operación ya fue recibida.' });
       }
-      if (error?.code === 'INSUFFICIENT_CREDITS' || error?.statusCode === 402) {
-        return res.status(402).json({ code: 'INSUFFICIENT_CREDITS', error: 'Has alcanzado el límite de publicaciones de tu plan.' });
+      if (error instanceof OrganizationAccessError) {
+        return res.status(error.statusCode).json({ code: error.code, error: organizationAccessMessages[error.code] });
       }
       if (error instanceof GeminiError) {
         if (error.reason === 'AUTH_OR_CONFIGURATION_ERROR') {
@@ -1839,7 +1847,6 @@ ${article.content}
 
         return res.json({
           ...generation.result,
-          creditsRemaining: generation.remainingPublications,
           generationId: generation.generationId,
           idempotencyKeyGenerated: generation.generatedIdempotencyKey,
         });
