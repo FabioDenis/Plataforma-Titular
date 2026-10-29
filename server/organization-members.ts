@@ -32,6 +32,16 @@ export interface AccountLookup {
 }
 
 export type FindAccountByEmail = (email: string) => Promise<AccountLookup | null>;
+export type CreateAccount = (email: string) => Promise<AccountLookup>;
+
+/**
+ * Invitation-only access: creates the Auth account without a password. Only whoever controls the
+ * mailbox can set one (through the emailed password link), so the address is treated as verified.
+ */
+export const createAuthAccount: CreateAccount = async (email) => {
+  const record = await getAdminAuth().createUser({ email, emailVerified: true });
+  return { uid: record.uid, email: (record.email || email).toLowerCase(), emailVerified: true };
+};
 
 export const findAccountByEmail: FindAccountByEmail = async (email) => {
   try {
@@ -94,8 +104,13 @@ async function attachMember(account: AccountLookup, orgId: string): Promise<void
 
 export async function addOrganizationMember(
   input: { orgId: string; email: unknown; invitedByUid: string; invitedByEmail?: string },
-  findAccount: FindAccountByEmail = findAccountByEmail
-): Promise<{ status: 'active'; email: string; uid: string } | { status: 'pending'; email: string }> {
+  findAccount: FindAccountByEmail = findAccountByEmail,
+  createAccount: CreateAccount | null = createAuthAccount
+): Promise<
+  | { status: 'active'; email: string; uid: string }
+  | { status: 'created'; email: string; uid: string }
+  | { status: 'pending'; email: string }
+> {
   const email = normalizeEmail(input.email);
   const org = await requireOrganization(input.orgId);
   const account = await findAccount(email);
@@ -106,6 +121,15 @@ export async function addOrganizationMember(
     await attachMember({ ...account, email }, input.orgId);
     return { status: 'active', email, uid: account.uid };
   }
+
+  // New person: create the account now; the admin's browser then emails the set-password link.
+  if (!account && createAccount) {
+    const createdAccount = await createAccount(email);
+    await attachMember({ ...createdAccount, email }, input.orgId);
+    return { status: 'created', email, uid: createdAccount.uid };
+  }
+
+  // An existing but unverified account must prove the address first (prevents squatting an email).
 
   await getAdminDb().doc(`invites/${email}`).set({
     email,

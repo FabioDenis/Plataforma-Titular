@@ -5,6 +5,7 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   sendEmailVerification,
+  sendPasswordResetEmail,
   signOut as firebaseSignOut,
 } from 'firebase/auth';
 import { getClientAuth, getFirebaseApp } from '../lib/firebase';
@@ -53,6 +54,8 @@ interface AuthContextType {
   resendVerificationEmail: () => Promise<void>;
   /** Reloads the account after the user clicked the email link; joins any pending newsroom invite. */
   confirmEmailVerified: () => Promise<boolean>;
+  /** Emails the set/reset-password link (invited accounts use it to create their password). */
+  sendPasswordSetupEmail: (email: string) => Promise<void>;
   authFetch: (url: string, options?: RequestInit) => Promise<Response>;
   getToken: () => Promise<string | null>;
 }
@@ -238,6 +241,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return current.emailVerified;
   };
 
+  const sendPasswordSetupEmail = async (email: string) => {
+    await sendPasswordResetEmail(getClientAuth(), email.trim(), { url: window.location.origin });
+  };
+
   const logout = async () => {
     const auth = getClientAuth();
     await firebaseSignOut(auth);
@@ -297,6 +304,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         emailVerified,
         resendVerificationEmail,
         confirmEmailVerified,
+        sendPasswordSetupEmail,
         authFetch,
         getToken,
       }}

@@ -44,6 +44,15 @@ async function newsroom() {
   return { owner, orgId: result.organization.id };
 }
 
+// Invitation-only: by default the server creates the Auth account for a new email.
+const noAccountCreation = null;
+const created: Account[] = [];
+async function createAccount(email: string) {
+  const acc = { uid: `created-${created.length}-${Date.now()}`, email, emailVerified: true };
+  created.push(acc);
+  return acc;
+}
+
 const isCode = (code: string) => (error: unknown) => error instanceof MembershipError && error.code === code;
 
 test('admin adds a verified registered account and it joins the newsroom immediately', async () => {
@@ -74,7 +83,7 @@ test('an unregistered email becomes a pending invite accepted on its first verif
   const { orgId } = await newsroom();
   const reporter = account();
 
-  const pending = await addOrganizationMember({ orgId, email: reporter.email, invitedByUid: 'admin' }, directory());
+  const pending = await addOrganizationMember({ orgId, email: reporter.email, invitedByUid: 'admin' }, directory(), noAccountCreation);
   assert.deepEqual(pending, { status: 'pending', email: reporter.email });
 
   assert.equal(await acceptPendingInvites(reporter), orgId);
@@ -126,7 +135,7 @@ test('removing a member revokes access and returns them to their own account on 
 test('removing a pending invite deletes it', async () => {
   const { orgId } = await newsroom();
   const reporter = account();
-  await addOrganizationMember({ orgId, email: reporter.email, invitedByUid: 'admin' }, directory());
+  await addOrganizationMember({ orgId, email: reporter.email, invitedByUid: 'admin' }, directory(), noAccountCreation);
 
   await removeOrganizationMember({ orgId, email: reporter.email }, directory());
 
@@ -139,7 +148,7 @@ test('the listing shows owner, active members and pending invites', async () => 
   await bootstrapAccount(active);
   const invited = account();
   await addOrganizationMember({ orgId, email: active.email, invitedByUid: 'admin' }, directory(active));
-  await addOrganizationMember({ orgId, email: invited.email, invitedByUid: 'admin' }, directory());
+  await addOrganizationMember({ orgId, email: invited.email, invitedByUid: 'admin' }, directory(), noAccountCreation);
 
   const listing = await listOrganizationMembers(orgId);
 
@@ -251,4 +260,22 @@ test('an admin listed in ADMIN_EMAILS gets the admin flag the Firestore rules re
   await bootstrapAccount(regular);
   assert.equal(await syncPlatformAdminFlag(regular.uid, regular.email), false);
   assert.equal((await getAdminDb().doc(`users/${regular.uid}`).get()).data()!.isAdmin, undefined);
+});
+
+// --- Invitation-only access ---
+
+test('adding an email without an account creates the account and links it to the newsroom', async () => {
+  const { orgId } = await newsroom();
+  const email = `new-${Date.now()}@example.test`;
+
+  const result = await addOrganizationMember({ orgId, email, invitedByUid: 'admin' }, directory(), createAccount);
+
+  const account = created.find((a) => a.email === email)!;
+  assert.deepEqual(result, { status: 'created', email, uid: account.uid });
+  const db = getAdminDb();
+  assert.deepEqual((await db.doc(`organizations/${orgId}`).get()).data()!.members, [account.uid]);
+  assert.equal((await db.doc(`users/${account.uid}`).get()).data()!.organizationId, orgId);
+  // Setting the password from the emailed link lands the person directly in the newsroom.
+  const session = await bootstrapAccount({ uid: account.uid, email });
+  assert.equal(session.organization.id, orgId);
 });

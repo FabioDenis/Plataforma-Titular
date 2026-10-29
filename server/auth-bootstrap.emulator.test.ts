@@ -31,7 +31,9 @@ test('new registration creates the canonical user and default organization atomi
   assert.equal(result.organization.plan, 'trial');
   assert.equal(result.organization.publicationLimit, 3);
   assert.equal(result.organization.publicationUsed, 0);
-  assert.equal(result.organization.status, 'Activa');
+  // Access is by invitation: a self-registered account gets a newsroom in preparation that cannot use the AI.
+  assert.equal(result.organization.status, 'draft');
+  assert.equal(result.organization.selfSignup, true);
   assert.equal(result.organization.orgType, 'Medio Digital');
 });
 

@@ -32,7 +32,6 @@ function organizationDefaults(identity: BootstrapIdentity, now: string): Documen
     name: `Medio Digital (${username})`,
     ownerUid: identity.uid,
     createdAt: now,
-    status: 'Activa',
     orgType: 'Medio Digital',
   };
 }
@@ -109,6 +108,12 @@ export async function bootstrapAccount(
       organizationData,
       organizationDefaults(identity, now)
     );
+    // Access is by invitation: an account that creates its own newsroom gets it in preparation, so it
+    // cannot use the shared AI balance until a platform admin activates it. Existing newsrooms keep their status.
+    if (!selectedOrgSnap.exists) {
+      organizationPatch.status = 'draft';
+      organizationPatch.selfSignup = true;
+    }
     const effectivePlan = organizationData.plan ?? 'trial';
     if (organizationData.plan === undefined) organizationPatch.plan = 'trial';
     if (organizationData.publicationLimit === undefined && effectivePlan === 'trial') {
