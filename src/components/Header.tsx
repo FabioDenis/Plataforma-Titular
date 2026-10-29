@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { History, Settings, LogOut, LogIn, Loader2, AlertCircle, CreditCard, ShieldCheck } from 'lucide-react';
+import { History, Settings, LogOut, LogIn, Loader2, AlertCircle, ShieldCheck } from 'lucide-react';
 import titularStudioLogo from '../assets/titular-studio-logo.png';
-import { OutletBranding, OrganizationIdentity, DEFAULT_TRIAL_PUBLICATION_LIMIT } from '../types';
+import { OutletBranding, OrganizationIdentity } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { useOrganization } from '../hooks/useOrganization';
 
@@ -27,12 +27,10 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenAdmin,
   savedCount,
 }) => {
-  const { user, loading: authLoading, isAdmin, setIsBillingOpen, setIsAuthModalOpen, logout } = useAuth();
-  const { organization, loading: orgLoading } = useOrganization();
+  const { user, loading: authLoading, isAdmin, setIsAuthModalOpen, logout } = useAuth();
+  const { organization } = useOrganization();
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
 
-  const limit = organization?.publicationLimit ?? DEFAULT_TRIAL_PUBLICATION_LIMIT;
-  const used = organization?.publicationUsed ?? 0;
   const currentOrgName = organization?.name || activeIdentity?.name || branding.name || 'Mi Medio';
 
   return (
@@ -110,24 +108,6 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Right: Balance, Organization & User Menu */}
         <div className="flex items-center gap-3 shrink-0">
-          {/* Usage Counter: platform admins only. Clients pay a flat fee and never see balances. */}
-          {isAdmin && (
-          <button
-            type="button"
-            onClick={() => setIsBillingOpen(true)}
-            className="flex items-center gap-1.5 text-xs text-brand-navy/70 hover:text-brand-navy px-2 py-1 rounded transition-colors cursor-pointer"
-            title="Gestionar publicaciones y plan"
-          >
-            <span className="text-[11px] text-brand-navy/50">Uso</span>
-            <span className="font-medium text-brand-navy font-mono text-[11px]">
-              {used} / {limit}
-            </span>
-            {orgLoading && user && (
-              <span className="inline-block h-1.5 w-1.5 rounded-full bg-brand-primary animate-pulse" />
-            )}
-          </button>
-          )}
-
           {/* Active Organization Selector */}
           <button
             type="button"
@@ -177,20 +157,6 @@ export const Header: React.FC<HeaderProps> = ({
                       <Settings className="h-3.5 w-3.5 text-brand-navy/60 shrink-0" />
                       <span>Configurar Organización</span>
                     </button>
-
-                    {isAdmin && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsUserMenuOpen(false);
-                        setIsBillingOpen(true);
-                      }}
-                      className="w-full flex items-center gap-2 rounded px-2.5 py-1.5 text-xs text-brand-navy/80 hover:bg-brand-navy/5 hover:text-brand-navy cursor-pointer"
-                    >
-                      <CreditCard className="h-3.5 w-3.5 text-brand-navy/60 shrink-0" />
-                      <span>Planes y Facturación</span>
-                    </button>
-                    )}
 
                     {isAdmin && onOpenAdmin && (
                       <button
