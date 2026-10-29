@@ -36,6 +36,7 @@ import {
 } from './server/services/meta';
 import {
   checkIsHermesAdmin,
+  syncPlatformAdminFlag,
   getAllUsersWithOrganizations,
   adminAddGenerations,
   getOrganizationGenerationHistory,
@@ -393,7 +394,7 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
         const email = req.user!.email;
         const profile = await getOrCreateBillingProfile(uid, email);
         const ledger = await getUserLedger(uid, 15);
-        const isAdmin = await checkIsHermesAdmin(uid, email);
+        const isAdmin = await syncPlatformAdminFlag(uid, email);
 
         const monthlyRemaining = profile.monthlyCreditsRemaining || 0;
         const purchasedRemaining = profile.purchasedCreditsRemaining || 0;

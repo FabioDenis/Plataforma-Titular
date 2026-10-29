@@ -9,6 +9,7 @@ process.env.FIRESTORE_EMULATOR_HOST = '127.0.0.1:8085';
 
 const { adminApp, getAdminDb } = await import('./firebase-admin');
 const { bootstrapAccount } = await import('./auth-bootstrap');
+const { syncPlatformAdminFlag } = await import('./billing');
 const {
   addOrganizationMember,
   removeOrganizationMember,
@@ -218,6 +219,8 @@ test('an admin enters a client newsroom to edit it and goes back to their own', 
 
   await enterOrganizationAsAdmin(admin.uid, client.orgId);
   assert.equal((await db.doc(`users/${admin.uid}`).get()).data()!.organizationId, client.orgId);
+  // Firestore rules recognize platform admins by this flag, so it must be set when entering.
+  assert.equal((await db.doc(`users/${admin.uid}`).get()).data()!.isAdmin, true);
   // Entering never makes the admin a member of the client newsroom.
   assert.equal((await db.doc(`organizations/${client.orgId}`).get()).data()!.members, undefined);
 
@@ -227,4 +230,24 @@ test('an admin enters a client newsroom to edit it and goes back to their own', 
 
 test('entering a missing newsroom is rejected', async () => {
   await assert.rejects(enterOrganizationAsAdmin('platform-admin', 'missing-org'), isCode('ORGANIZATION_NOT_FOUND'));
+});
+
+test('an admin listed in ADMIN_EMAILS gets the admin flag the Firestore rules rely on', async () => {
+  const admin = account();
+  await bootstrapAccount(admin);
+  const previous = process.env.ADMIN_EMAILS;
+  process.env.ADMIN_EMAILS = `other@example.test, ${admin.email.toUpperCase()}`;
+  try {
+    assert.equal(await syncPlatformAdminFlag(admin.uid, admin.email), true);
+  } finally {
+    process.env.ADMIN_EMAILS = previous;
+  }
+  const doc = (await getAdminDb().doc(`users/${admin.uid}`).get()).data()!;
+  assert.equal(doc.isAdmin, true);
+  assert.equal(doc.role, 'owner');
+
+  const regular = account();
+  await bootstrapAccount(regular);
+  assert.equal(await syncPlatformAdminFlag(regular.uid, regular.email), false);
+  assert.equal((await getAdminDb().doc(`users/${regular.uid}`).get()).data()!.isAdmin, undefined);
 });

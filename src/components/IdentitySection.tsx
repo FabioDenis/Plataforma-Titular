@@ -84,6 +84,15 @@ export const IdentitySection: React.FC<IdentitySectionProps> = ({
     );
   }
 
+  // A newsroom's identities arrive from Firestore (a new one is seeded on first open): wait instead of crashing.
+  if (!currentIdentity) {
+    return (
+      <div className="mx-auto max-w-4xl px-4 py-12 text-center">
+        <p className="text-xs text-brand-navy/60">Cargando la identidad del medio...</p>
+      </div>
+    );
+  }
+
   // Active organization data derived from Firestore if available
   const orgName = organization?.name || currentIdentity.name;
   const logoUrl = organization?.logoUrl || currentIdentity.logoUrl;

@@ -405,6 +405,20 @@ export async function checkIsHermesAdmin(uid: string, email?: string): Promise<b
 }
 
 /**
+ * Keeps users/{uid}.isAdmin in step with the server's view of platform admins (ADMIN_EMAILS or role).
+ * Firestore rules can't read ADMIN_EMAILS, so they rely on this flag to let admins open client newsrooms.
+ */
+export async function syncPlatformAdminFlag(uid: string, email?: string): Promise<boolean> {
+  const isAdmin = await checkIsHermesAdmin(uid, email);
+  if (isAdmin) {
+    const ref = getAdminDb().collection('users').doc(uid);
+    const snap = await ref.get();
+    if (snap.data()?.isAdmin !== true) await ref.set({ isAdmin: true }, { merge: true });
+  }
+  return isAdmin;
+}
+
+/**
  * Retrieves all registered users paired with their respective organization counters.
  * organizations/{organizationId} is the single source of truth for publicationLimit and publicationUsed.
  */

@@ -242,7 +242,8 @@ export async function createManagedOrganization(input: { name: unknown; adminUid
  */
 export async function enterOrganizationAsAdmin(adminUid: string, orgId: string): Promise<void> {
   await requireOrganization(orgId);
-  await getAdminDb().doc(`users/${adminUid}`).set({ organizationId: orgId }, { merge: true });
+  // isAdmin is what the Firestore rules check to let the admin read and edit the newsroom.
+  await getAdminDb().doc(`users/${adminUid}`).set({ organizationId: orgId, isAdmin: true }, { merge: true });
 }
 
 /** Returns the admin's session to the organization they own (or to the default one on next sign-in). */
