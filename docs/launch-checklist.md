@@ -64,6 +64,11 @@ Firebase Hosting `titular-53a66`, reglas de Firestore desplegadas, bundle en viv
       revisada (ya hubo RESOURCE_EXHAUSTED por créditos agotados).
 - [ ] **S7. Backups Firestore:** scheduled backups habilitados.
 
+- [ ] **S8. Quitar un admin en dos pasos.** Las reglas reconocen admins por
+      `users/{uid}.isAdmin`, que el servidor sincroniza desde `ADMIN_EMAILS` pero
+      nunca borra solo. Para revocar: sacar el email de `ADMIN_EMAILS` **y** usar
+      "Quitar rol Admin" en el panel.
+
 ## 🟢 Post-lanzamiento (nice to have)
 
 - [ ] CI en GitHub Actions: lint + tests por PR (hoy no hay `.github`).

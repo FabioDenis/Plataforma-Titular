@@ -240,7 +240,8 @@ test('an admin listed in ADMIN_EMAILS gets the admin flag the Firestore rules re
   try {
     assert.equal(await syncPlatformAdminFlag(admin.uid, admin.email), true);
   } finally {
-    process.env.ADMIN_EMAILS = previous;
+    if (previous === undefined) delete process.env.ADMIN_EMAILS;
+    else process.env.ADMIN_EMAILS = previous;
   }
   const doc = (await getAdminDb().doc(`users/${admin.uid}`).get()).data()!;
   assert.equal(doc.isAdmin, true);

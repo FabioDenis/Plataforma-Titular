@@ -411,9 +411,14 @@ export async function checkIsHermesAdmin(uid: string, email?: string): Promise<b
 export async function syncPlatformAdminFlag(uid: string, email?: string): Promise<boolean> {
   const isAdmin = await checkIsHermesAdmin(uid, email);
   if (isAdmin) {
-    const ref = getAdminDb().collection('users').doc(uid);
-    const snap = await ref.get();
-    if (snap.data()?.isAdmin !== true) await ref.set({ isAdmin: true }, { merge: true });
+    // Best effort: failing to persist the flag must never fail the caller (e.g. the billing profile).
+    try {
+      const ref = getAdminDb().collection('users').doc(uid);
+      const snap = await ref.get();
+      if (snap.data()?.isAdmin !== true) await ref.set({ isAdmin: true }, { merge: true });
+    } catch (err) {
+      console.warn('[syncPlatformAdminFlag] Could not persist the admin flag:', (err as Error)?.message);
+    }
   }
   return isAdmin;
 }
