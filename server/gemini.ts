@@ -67,12 +67,12 @@ type PricingPeriod = { from: string; version: string; models: Record<string, Mod
 export const GEMINI_PRICING_SCHEDULE: PricingPeriod[] = [
   {
     from: '2026-01-01',
-    version: 'gemini-api-pricing-2026-10-28',
+    version: 'gemini-api-pricing-2026-10-28/2026',
     models: { 'gemini-3.6-flash': { inputPerMillionUsd: 0.75, outputPerMillionUsd: 3.75 } },
   },
   {
     from: '2027-01-01',
-    version: 'gemini-api-pricing-2026-10-28',
+    version: 'gemini-api-pricing-2026-10-28/2027',
     models: { 'gemini-3.6-flash': { inputPerMillionUsd: 1.5, outputPerMillionUsd: 7.5 } },
   },
 ];
@@ -82,12 +82,26 @@ function pricingSchedule(): PricingPeriod[] {
   if (!override) return GEMINI_PRICING_SCHEDULE;
   try {
     const parsed = JSON.parse(override);
-    if (Array.isArray(parsed)) return parsed;
+    if (Array.isArray(parsed) && parsed.every(isValidPricingPeriod)) return parsed;
   } catch {
     // Fall through: an invalid override must not break generation.
   }
   console.warn('[gemini] GEMINI_PRICING_JSON is invalid; using the built-in price schedule.');
   return GEMINI_PRICING_SCHEDULE;
+}
+
+function isValidPricingPeriod(period: any): period is PricingPeriod {
+  const price = (value: unknown) => typeof value === 'number' && Number.isFinite(value) && value >= 0;
+  return (
+    typeof period?.from === 'string' &&
+    typeof period?.version === 'string' &&
+    period.models !== null &&
+    typeof period.models === 'object' &&
+    Object.values(period.models).every(
+      (m: any) => price(m?.inputPerMillionUsd) && price(m?.outputPerMillionUsd) &&
+        (m.thinkingPerMillionUsd === undefined || price(m.thinkingPerMillionUsd))
+    )
+  );
 }
 
 function pricingFor(model: string, at: Date): { version: string; pricing: ModelPricing } | null {

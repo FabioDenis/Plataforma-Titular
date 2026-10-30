@@ -279,3 +279,29 @@ test('adding an email without an account creates the account and links it to the
   const session = await bootstrapAccount({ uid: account.uid, email });
   assert.equal(session.organization.id, orgId);
 });
+
+test('an email registered between lookup and creation is linked as an existing account', async () => {
+  const { orgId } = await newsroom();
+  const racer = account();
+  let lookups = 0;
+  // First lookup misses; the account appears before createUser runs.
+  const find = async (email: string) => (lookups++ === 0 ? null : email === racer.email ? racer : null);
+  const failingCreate = async () => {
+    throw Object.assign(new Error('exists'), { code: 'auth/email-already-exists' });
+  };
+
+  const result = await addOrganizationMember({ orgId, email: racer.email, invitedByUid: 'admin' }, find, failingCreate);
+
+  assert.deepEqual(result, { status: 'active', email: racer.email, uid: racer.uid });
+});
+
+test('a failure creating the account is reported as account creation unavailable', async () => {
+  const { orgId } = await newsroom();
+  const denied = async () => {
+    throw Object.assign(new Error('insufficient permission'), { code: 'auth/insufficient-permission' });
+  };
+  await assert.rejects(
+    addOrganizationMember({ orgId, email: `nobody-${Date.now()}@example.test`, invitedByUid: 'admin' }, directory(), denied),
+    isCode('ACCOUNT_CREATION_UNAVAILABLE')
+  );
+});

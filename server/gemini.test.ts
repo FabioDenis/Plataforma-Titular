@@ -31,10 +31,26 @@ test('estimates cost with the official Gemini price in effect on the generation 
   // ai.google.dev/gemini-api/docs/pricing (updated 2026-10-28): $0.75 in / $3.75 out (thinking billed as output) until 2026-12-31.
   const october = calculateEstimatedCostUsd('gemini-3.6-flash', MILLION, new Date('2026-10-29T12:00:00Z'));
   assert.equal(october.estimatedCostUsd, 0.75 + 3.75 + 3.75);
-  assert.equal(october.pricingVersion, 'gemini-api-pricing-2026-10-28');
+  assert.equal(october.pricingVersion, 'gemini-api-pricing-2026-10-28/2026');
   // From 2027-01-01 the same model costs $1.50 in / $7.50 out.
   const january = calculateEstimatedCostUsd('gemini-3.6-flash', MILLION, new Date('2027-01-01T00:00:00Z'));
   assert.equal(january.estimatedCostUsd, 1.5 + 7.5 + 7.5);
+  assert.equal(january.pricingVersion, 'gemini-api-pricing-2026-10-28/2027');
+});
+
+test('an override with invalid prices is ignored instead of recording NaN costs', () => {
+  const previous = process.env.GEMINI_PRICING_JSON;
+  process.env.GEMINI_PRICING_JSON = JSON.stringify([
+    { from: '2026-01-01', version: 'broken', models: { 'gemini-3.6-flash': { inputPerMillionUsd: 'cheap' } } },
+  ]);
+  try {
+    const cost = calculateEstimatedCostUsd('gemini-3.6-flash', MILLION, new Date('2026-10-29T12:00:00Z'));
+    assert.equal(cost.pricingVersion, 'gemini-api-pricing-2026-10-28/2026');
+    assert.equal(cost.estimatedCostUsd, 0.75 + 3.75 + 3.75);
+  } finally {
+    if (previous === undefined) delete process.env.GEMINI_PRICING_JSON;
+    else process.env.GEMINI_PRICING_JSON = previous;
+  }
 });
 
 test('leaves cost unknown for models without a verified price', () => {

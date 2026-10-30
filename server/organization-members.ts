@@ -14,6 +14,7 @@ export type MembershipErrorCode =
   | 'INVALID_EMAIL'
   | 'INVALID_NAME'
   | 'INVALID_STATUS'
+  | 'ACCOUNT_CREATION_UNAVAILABLE'
   | 'ORGANIZATION_NOT_FOUND'
   | 'ALREADY_OWNER'
   | 'OWNER_CANNOT_BE_REMOVED'
@@ -113,7 +114,24 @@ export async function addOrganizationMember(
 > {
   const email = normalizeEmail(input.email);
   const org = await requireOrganization(input.orgId);
-  const account = await findAccount(email);
+  let account = await findAccount(email);
+
+  // New person: create the account now; the admin's browser then emails the set-password link.
+  if (!account && createAccount) {
+    try {
+      const createdAccount = await createAccount(email);
+      await attachMember({ ...createdAccount, email }, input.orgId);
+      return { status: 'created', email, uid: createdAccount.uid };
+    } catch (error: any) {
+      if (error instanceof MembershipError) throw error;
+      // Registered between the lookup and createUser: continue as an existing account.
+      if (error?.code !== 'auth/email-already-exists') {
+        console.error('[addOrganizationMember] Could not create the account:', error?.code || error?.message);
+        throw new MembershipError('ACCOUNT_CREATION_UNAVAILABLE');
+      }
+      account = await findAccount(email);
+    }
+  }
 
   if (account && org.data()?.ownerUid === account.uid) throw new MembershipError('ALREADY_OWNER');
 
@@ -122,14 +140,8 @@ export async function addOrganizationMember(
     return { status: 'active', email, uid: account.uid };
   }
 
-  // New person: create the account now; the admin's browser then emails the set-password link.
-  if (!account && createAccount) {
-    const createdAccount = await createAccount(email);
-    await attachMember({ ...createdAccount, email }, input.orgId);
-    return { status: 'created', email, uid: createdAccount.uid };
-  }
-
-  // An existing but unverified account must prove the address first (prevents squatting an email).
+  // Pending invite: an existing but unverified account must prove the address first (prevents
+  // squatting an email), or no account exists and account creation is disabled.
 
   await getAdminDb().doc(`invites/${email}`).set({
     email,
