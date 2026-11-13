@@ -65,6 +65,19 @@ test('private, loopback, link-local and reserved addresses are blocked', () => {
   }
 });
 
+test('blocks IPv6 forms that embed or translate to an IPv4 address', () => {
+  for (const address of [
+    '::127.0.0.1', '::7f00:1', '::a9fe:a9fe', '::ffff:0:127.0.0.1', '::ffff:0:a9fe:a9fe',
+    '64:ff9b:1::a9fe:a9fe', 'fec0::1',
+  ]) {
+    assert.equal(isBlockedAddress(address), true, address);
+  }
+  for (const url of ['http://[::127.0.0.1]/', 'http://[::7f00:1]/', 'http://[::ffff:0:a9fe:a9fe]/', 'http://[fec0::1]/']) {
+    assert.equal(isPublicHttpUrl(url), false, url);
+  }
+  assert.equal(isBlockedAddress('2606:4700:4700::1111'), false);
+});
+
 test('public addresses are allowed', () => {
   for (const address of ['8.8.8.8', '1.1.1.1', '172.15.255.255', '172.32.0.1', '2606:4700:4700::1111', '::ffff:8.8.8.8']) {
     assert.equal(isBlockedAddress(address), false, address);

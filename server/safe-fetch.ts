@@ -61,9 +61,11 @@ for (const [prefix, bits] of [
   blockedRanges.addSubnet(prefix, bits, 'ipv4');
 }
 for (const [prefix, bits] of [
-  ['::', 128], // unspecified
-  ['::1', 128], // loopback
+  ['::', 96], // unspecified, loopback and IPv4-compatible (::a.b.c.d)
+  ['::ffff:0:0:0', 96], // IPv4-translated (::ffff:0:a.b.c.d)
   ['64:ff9b::', 96], // NAT64, embeds an IPv4 address
+  ['64:ff9b:1::', 48], // local-use NAT64, embeds an IPv4 address
+  ['fec0::', 10], // deprecated site-local
   ['2001::', 32], // Teredo
   ['2001:db8::', 32], // documentation
   ['2002::', 16], // 6to4, embeds an IPv4 address
