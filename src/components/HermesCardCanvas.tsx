@@ -4,6 +4,7 @@ import {
   HermesCardFormat,
   HERMES_CARD_FORMATS,
 } from '../data/hermesOfficialTemplates';
+import { fetchImageViaProxy } from '../utils/imageExportHelper';
 
 export interface HermesCardCanvasProps {
   customization: HermesTemplateCustomization;
@@ -248,17 +249,22 @@ export const HermesCardCanvas: React.FC<HermesCardCanvasProps> = ({
           style={transformStyle}
           onError={(e) => {
             const target = e.target as HTMLImageElement;
+            const fallbackSrc =
+              'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?auto=format&fit=crop&w=1200&q=80';
             if (
               !target.dataset.triedProxy &&
               effectiveImage &&
               !effectiveImage.startsWith('data:') &&
-              !effectiveImage.startsWith('/api/proxy-image')
+              !effectiveImage.startsWith('blob:')
             ) {
               target.dataset.triedProxy = 'true';
-              target.src = `/api/proxy-image?url=${encodeURIComponent(effectiveImage)}`;
+              const failedSrc = target.src;
+              void fetchImageViaProxy(effectiveImage).then((dataUrl) => {
+                // Skip when the card already moved on to another image.
+                if (target.src === failedSrc) target.src = dataUrl || fallbackSrc;
+              });
             } else {
-              target.src =
-                'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?auto=format&fit=crop&w=1200&q=80';
+              target.src = fallbackSrc;
             }
           }}
         />

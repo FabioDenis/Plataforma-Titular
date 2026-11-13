@@ -1,4 +1,5 @@
 import { toCanvas } from 'html-to-image';
+import { getClientAuth } from '../lib/firebase';
 
 /**
  * Converts any image URL (remote, CORS-blocked, or local) into a base64 Data URL.
@@ -23,19 +24,31 @@ export async function toSafeDataUrl(imageUrl: string): Promise<string> {
   }
 
   // 2. Fallback to server-side proxy
-  try {
-    const proxyUrl = `/api/proxy-image?url=${encodeURIComponent(imageUrl)}`;
-    const proxyRes = await fetch(proxyUrl);
-    if (proxyRes.ok) {
-      const blob = await proxyRes.blob();
-      return await blobToDataUrl(blob);
-    }
-  } catch (proxyErr) {
-    console.warn('[imageExportHelper] Proxy fetch failed for image:', imageUrl, proxyErr);
-  }
+  const proxied = await fetchImageViaProxy(imageUrl);
 
   // If all fails, return the original URL so the pipeline can still proceed
-  return imageUrl;
+  return proxied || imageUrl;
+}
+
+/**
+ * Loads a remote image through the authenticated server proxy and returns it as a Data URL,
+ * or null when there is no session or the proxy cannot serve it. The proxy requires the
+ * session token, so it cannot be used directly as an <img> src.
+ */
+export async function fetchImageViaProxy(imageUrl: string): Promise<string | null> {
+  try {
+    const currentUser = getClientAuth().currentUser;
+    if (!currentUser) return null;
+    const token = await currentUser.getIdToken();
+    const proxyRes = await fetch(`/api/proxy-image?url=${encodeURIComponent(imageUrl)}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!proxyRes.ok) return null;
+    return await blobToDataUrl(await proxyRes.blob());
+  } catch (proxyErr) {
+    console.warn('[imageExportHelper] Proxy fetch failed for image:', imageUrl, proxyErr);
+    return null;
+  }
 }
 
 function blobToDataUrl(blob: Blob): Promise<string> {

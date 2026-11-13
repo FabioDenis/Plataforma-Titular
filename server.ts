@@ -66,6 +66,8 @@ import {
 } from './server/organization-members';
 import { OrganizationAccessError } from './server/organization-lifecycle';
 import { getOrganizationUsageHistory, listManagedOrganizations, setOrganizationLifecycle } from './server/organization-admin';
+import { isPublicHttpUrl, safeFetch, SafeFetch, SafeFetchError } from './server/safe-fetch';
+import { createRateLimiter } from './server/rate-limit';
 
 // Safe resolution for __dirname in both CJS bundle and ESM environments
 const getCurrentDir = (): string => {
@@ -93,39 +95,6 @@ process.on('uncaughtException', (err) => {
   console.error('Uncaught Exception thrown:', err);
 });
 
-// Helper for SSRF URL safety
-function isUrlSafe(urlString: string): boolean {
-  try {
-    const parsed = new URL(urlString);
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      return false;
-    }
-    const hostname = parsed.hostname.toLowerCase();
-    if (
-      hostname === 'localhost' ||
-      hostname === '127.0.0.1' ||
-      hostname === '0.0.0.0' ||
-      hostname === '::1' ||
-      hostname.startsWith('10.') ||
-      hostname.startsWith('192.168.') ||
-      hostname.startsWith('172.16.') ||
-      hostname.startsWith('172.17.') ||
-      hostname.startsWith('172.18.') ||
-      hostname.startsWith('172.19.') ||
-      hostname.startsWith('172.20.') ||
-      hostname.startsWith('172.30.') ||
-      hostname.startsWith('172.31.') ||
-      hostname.endsWith('.local') ||
-      hostname.endsWith('.internal')
-    ) {
-      return false;
-    }
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 // Messages eligible to be returned to clients: only curated, static user-facing strings authored
 // in server/services/meta. MetaServiceError instances tagged with the UNKNOWN category carry
 // dynamic text derived from raw Meta Graph API responses, so they fall back to a generic message.
@@ -137,6 +106,9 @@ function getClientSafeErrorMessage(err: any, genericMessage: string): string {
 }
 
 // Escapes dynamic values interpolated into HTML text contexts to prevent XSS.
+const EXTRACT_MAX_BYTES = 10 * 1024 * 1024;
+const PROXY_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, '&amp;')
@@ -157,7 +129,7 @@ export interface ServerTestDependencies {
   verifyAuth?: typeof verifyFirebaseAuth;
   authenticateRequest?: typeof authenticateFirebaseRequest;
   bootstrapAccount?: typeof bootstrapAccount;
-  fetch?: typeof fetch;
+  fetch?: SafeFetch;
   hooks?: {
     postReservationPreGemini?: () => Promise<void> | void;
     postGeminiPreFinalization?: () => Promise<void> | void;
@@ -177,7 +149,20 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
   const authenticateRequest = dependencies.authenticateRequest || authenticateFirebaseRequest;
   const runBootstrapAccount = dependencies.bootstrapAccount || bootstrapAccount;
   const runGemini = dependencies.generateGeminiContent || generateGeminiContent;
-  const fetcher = dependencies.fetch || fetch;
+  const fetcher = dependencies.fetch || safeFetch;
+
+  // Per-user limits for the endpoints that make the server fetch a caller-supplied URL.
+  const rateLimitPerUser = (envName: string, defaultPerMinute: number) => {
+    const consume = createRateLimiter({ windowMs: 60_000, max: getOptionalNumberEnv(envName, defaultPerMinute) });
+    return (req: AuthenticatedRequest, res: express.Response, next: express.NextFunction) => {
+      const decision = consume(req.user?.uid || req.ip || 'unknown');
+      if (decision.allowed) return next();
+      res.setHeader('Retry-After', String(decision.retryAfterSeconds));
+      return res.status(429).json({ code: 'RATE_LIMITED', error: 'Demasiadas solicitudes. Intente nuevamente en unos instantes.' });
+    };
+  };
+  const extractRateLimit = rateLimitPerUser('EXTRACT_RATE_LIMIT_PER_MINUTE', 30);
+  const proxyImageRateLimit = rateLimitPerUser('PROXY_IMAGE_RATE_LIMIT_PER_MINUTE', 120);
   app.use(express.json({ limit: '30mb' }));
 
   // Cloud Run container health probe (no auth, no external service calls)
@@ -342,7 +327,7 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
     });
 
     // API Route: Secure Image Proxy to bypass CORS on export
-    app.get('/api/proxy-image', async (req, res) => {
+    app.get('/api/proxy-image', verifyAuth as any, proxyImageRateLimit as any, async (req: AuthenticatedRequest, res) => {
       try {
         const rawUrl = req.query.url as string;
         if (!rawUrl || typeof rawUrl !== 'string') {
@@ -360,8 +345,8 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
           return res.status(400).json({ error: 'Solo protocolos HTTP y HTTPS están soportados.' });
         }
 
-        // SSRF guard: reject targets pointing at private/internal network hosts.
-        if (!isUrlSafe(rawUrl)) {
+        // SSRF guard: reject internal targets early; the fetch layer validates the resolved address.
+        if (!isPublicHttpUrl(rawUrl)) {
           return res.status(400).json({ error: 'La URL solicitada no está permitida.' });
         }
 
@@ -371,22 +356,30 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
               'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
             Accept: 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
           },
-          signal: AbortSignal.timeout(12000),
+          timeoutMs: 12000,
+          maxBytes: PROXY_IMAGE_MAX_BYTES,
         });
 
         if (!response.ok) {
           return res.status(response.status).json({ error: `Servidor remoto retornó status ${response.status}` });
         }
 
-        const contentType = response.headers.get('content-type') || 'image/jpeg';
+        const contentType = response.headers.get('content-type') || '';
+        if (!contentType.toLowerCase().startsWith('image/')) {
+          return res.status(415).json({ error: 'El recurso remoto no es una imagen.' });
+        }
         const buffer = await response.arrayBuffer();
 
-        res.setHeader('Access-Control-Allow-Origin', '*');
-        res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
         res.setHeader('Content-Type', contentType);
-        res.setHeader('Cache-Control', 'public, max-age=86400');
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        res.setHeader('Cache-Control', 'private, max-age=86400');
         return res.send(Buffer.from(buffer));
       } catch (err: any) {
+        if (err instanceof SafeFetchError) {
+          if (err.code === 'UNSAFE_URL') return res.status(400).json({ error: 'La URL solicitada no está permitida.' });
+          if (err.code === 'RESPONSE_TOO_LARGE') return res.status(413).json({ error: 'La imagen remota supera el tamaño máximo permitido.' });
+          if (err.code === 'TIMEOUT') return res.status(504).json({ error: 'El servidor remoto no respondió a tiempo.' });
+        }
         console.error('Error en /api/proxy-image:', err?.message || err);
         return res.status(500).json({ error: 'Error al obtener la imagen remota.' });
       }
@@ -1072,7 +1065,7 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
     // ARTICLE EXTRACTION (FREE, NO CREDITS REQUIRED)
     // ==========================================
 
-    app.post('/api/extract', async (req, res) => {
+    app.post('/api/extract', verifyAuth as any, extractRateLimit as any, async (req: AuthenticatedRequest, res) => {
       try {
         const { url, rawText, docTitle, importType } = req.body || {};
         const maxChars = getOptionalNumberEnv('MAX_ARTICLE_INPUT_CHARS', 60000);
@@ -1110,7 +1103,7 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
 
         const cleanUrl = url.trim();
 
-        if (!isUrlSafe(cleanUrl)) {
+        if (!isPublicHttpUrl(cleanUrl)) {
           return res.status(400).json({
             error: 'La URL proporcionada no es válida o apunta a una dirección IP privada / no permitida.',
           });
@@ -1282,7 +1275,8 @@ Instrucciones:
               'Sec-Fetch-Site': 'none',
               'Sec-Fetch-User': '?1',
             },
-            signal: AbortSignal.timeout(10000), // 10 sec timeout
+            timeoutMs: 10000,
+            maxBytes: EXTRACT_MAX_BYTES,
           });
 
           console.log('[DIAGNOSTIC] [POST /api/extract] HTTP fetch completed. Status:', fetchRes.status, fetchRes.statusText, 'Content-Type:', fetchRes.headers.get('content-type'));
@@ -1301,6 +1295,13 @@ Instrucciones:
             errorMessage: fetchErr.message,
             errorCode: fetchErr.code,
           });
+
+          // A destination blocked by the SSRF guard is a client error, not a reason to try the AI fallback.
+          if (fetchErr instanceof SafeFetchError && fetchErr.code === 'UNSAFE_URL') {
+            return res.status(400).json({
+              error: 'La URL proporcionada no es válida o apunta a una dirección IP privada / no permitida.',
+            });
+          }
 
           // Attempt Gemini Fallback on fetch error
           console.log('[EXTRACT] Direct fetch failed. Attempting Gemini fallback...');

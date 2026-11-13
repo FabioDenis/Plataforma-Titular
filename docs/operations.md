@@ -165,7 +165,7 @@ To enable:
 |---|---|
 | Pre-existing concurrency bug in AI reservation dedup | Under concurrent same-key requests the reservation ledger does not dedupe (10 provider calls instead of 1). Fails identically on the initial commit — not introduced by deployment work. Fix pending in `server/ai-generations.ts`. |
 | `firestore.rules` hardcoded admin email | Rules reference `delgado122016@gmail.com`; production admin is now `titular.mis@gmail.com`. Only affects direct client-side writes — the admin panel works through the server (Admin SDK). Rules update is a separate approved change. |
-| Rate limiting | `/api/extract` (and other public endpoints) have no rate limiting. |
+| Rate limiting | `/api/extract` and `/api/proxy-image` are limited per user in process memory (`server/rate-limit.ts`), which is only accurate with `--max-instances 1`; move it to a shared store before scaling out. Other endpoints have no rate limiting. |
 | Frontend bundle size | Main JS chunk ~1.13 MB (>500 kB Vite warning). Code-splitting candidate. |
 | Billing error messages | Some billing errors return generic text after the security sanitization; restoring specific user-facing messages requires backfilling `userMessage` on `server/mercadopago.ts` throw sites. |
 | First `docker build` | Never run locally (no Docker). Cloud Build performed it successfully during deploy. |
@@ -177,7 +177,10 @@ To enable:
   no service account JSON exists in production.
 - Private endpoints verify Firebase ID tokens; admin endpoints enforce the admin
   check (ADMIN_EMAILS / user role).
-- Endpoint hardening applied: SSRF guard on `proxy-image`, HTML escaping on the
+- Outbound fetches of caller-supplied URLs (`/api/extract`, `/api/proxy-image`) go through
+  `server/safe-fetch.ts`: the resolved IP is validated and pinned, redirects are re-validated,
+  and responses are size-capped. Both endpoints require a Firebase ID token.
+- Endpoint hardening applied: HTML escaping on the
   OAuth callback, organization authorization on publish/retry, client-safe error
   messages, timing-safe HMAC comparisons.
 - `firebase.json` + `.firebaserc` pin deploys to project `titular-53a66`.

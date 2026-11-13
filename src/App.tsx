@@ -80,9 +80,8 @@ function MainAppContent() {
 
       // Step 1: Extract news article (Free)
       setLoadingStep(`1/2. Obteniendo noticia y extrayendo contenido con perfil de ${activeIdentity.name}...`);
-      const extractRes = await fetch('/api/extract', {
+      const extractRes = await authFetch('/api/extract', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url }),
       });
 
@@ -148,9 +147,8 @@ function MainAppContent() {
       setError(null);
 
       setLoadingStep(`1/2. Procesando ${importType === 'document' ? 'documento' : importType === 'image' ? 'imagen/flyer' : 'comunicado'} con perfil de ${activeIdentity.name}...`);
-      const extractRes = await fetch('/api/extract', {
+      const extractRes = await authFetch('/api/extract', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ rawText: text, title, importType }),
       });
 

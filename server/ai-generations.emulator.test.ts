@@ -329,7 +329,7 @@ test('test-only stage hooks prove the pre-finalization and post-finalization cra
   assert.equal((await getAdminDb().doc(`organizations/${identity.orgId}`).get()).data()!.publicationUsed, 1);
 });
 
-test('public HTML extraction stays public while AI fallback requires auth and is tracked without publication consumption', async () => {
+test('extraction requires auth and its AI fallback is tracked without publication consumption', async () => {
   const identity = nextIdentity();
   await seed(identity);
   let calls = 0;
@@ -340,8 +340,11 @@ test('public HTML extraction stays public while AI fallback requires auth and is
   };
   const failingFetch: any = async () => { throw new Error('blocked'); };
   await withApp({ generateGeminiContent, fetch: failingFetch }, async (baseUrl) => {
-    const publicResult = await request(baseUrl, '/api/extract', identity, { bearer: false, body: { url: 'https://tumedio.com/2026/07/22/nuevo-programa-inteligencia-artificial-para-pymes/' } });
-    assert.equal(publicResult.status, 200);
+    const sampleUrl = 'https://tumedio.com/2026/07/22/nuevo-programa-inteligencia-artificial-para-pymes/';
+    const unauthenticatedSample = await request(baseUrl, '/api/extract', identity, { bearer: false, body: { url: sampleUrl } });
+    assert.equal(unauthenticatedSample.status, 401);
+    const sample = await request(baseUrl, '/api/extract', identity, { body: { url: sampleUrl } });
+    assert.equal(sample.status, 200);
     const unauthenticatedFallback = await request(baseUrl, '/api/extract', identity, { bearer: false, body: { url: 'https://example.com/blocked-news' } });
     assert.equal(unauthenticatedFallback.status, 401);
     const fallback = await request(baseUrl, '/api/extract', identity, { body: { url: 'https://example.com/blocked-news' } });
