@@ -696,10 +696,10 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
           );
           return res.json(result);
         } catch (err) {
-          // A full newsroom or a mistyped email does not use up an invitation. Refusals that reveal
-          // something about other accounts (another newsroom, a platform admin) still count, so
-          // they cannot be used to probe emails without limit.
-          if (err instanceof MembershipError && (err.code === 'SEAT_LIMIT_REACHED' || err.code === 'INVALID_EMAIL')) {
+          // Only refusals that reveal something about other accounts (another newsroom, a platform
+          // admin) use up an invitation, so emails cannot be probed without limit. A full newsroom,
+          // a mistyped email or a server failure gives it back.
+          if (!(err instanceof MembershipError && err.code === 'ACCOUNT_IN_OTHER_NEWSROOM')) {
             consumeTeamInvite.release(req.user!.uid, decision);
           }
           throw err;

@@ -246,13 +246,15 @@ async function attachMember(account: AccountLookup, orgId: string, actor: Member
 
     if (actor.kind === 'manager') {
       assertManagerOf(org, actor);
-      await assertNotInOtherNewsroom(transaction, orgId, account.email, account.uid);
+      // The seat check runs first: a full newsroom answers the same for every email, so it
+      // cannot be used to learn which accounts belong to other newsrooms.
       const limit = seatLimitOf(org);
       const alreadyHoldsSeat = seatHolders(org).has(account.uid);
       if (!alreadyHoldsSeat && limit !== null) {
         const used = await seatsInUse((query) => transaction.get(query), orgId, org, account.email);
         if (used + 1 > limit) throw new MembershipError('SEAT_LIMIT_REACHED');
       }
+      await assertNotInOtherNewsroom(transaction, orgId, account.email, account.uid);
     }
 
     previous.docs
@@ -285,11 +287,12 @@ async function recordPendingInvite(
       if (!orgSnap.exists) throw new MembershipError('ORGANIZATION_NOT_FOUND');
       const org = orgSnap.data();
       assertManagerOf(org, actor);
-      await assertNotInOtherNewsroom(transaction, input.orgId, input.email, account?.uid || null);
+      // Seat check first, for the same reason as in attachMember.
       const limit = seatLimitOf(org);
       if (limit !== null && (await seatsInUse((query) => transaction.get(query), input.orgId, org, input.email)) + 1 > limit) {
         throw new MembershipError('SEAT_LIMIT_REACHED');
       }
+      await assertNotInOtherNewsroom(transaction, input.orgId, input.email, account?.uid || null);
     }
     transaction.set(inviteRef, {
       email: input.email,
@@ -320,13 +323,14 @@ export async function addOrganizationMember(
   // New person: create the account now; the admin's browser then emails the set-password link.
   if (!account && createAccount) {
     if (actor.kind === 'manager') {
-      // Checked before creating anything, so a full newsroom or a foreign invite never creates an account.
-      const invite = await getAdminDb().doc(`invites/${email}`).get();
-      if (invite.exists && invite.data()?.orgId !== input.orgId) throw new MembershipError('ACCOUNT_IN_OTHER_NEWSROOM');
+      // Checked before creating anything, so a full newsroom or a foreign invite never creates an
+      // account. The seat check goes first so a full newsroom reveals nothing about other emails.
       const limit = seatLimitOf(org.data());
       if (limit !== null && (await seatsInUse((query) => query.get(), input.orgId, org.data(), email)) + 1 > limit) {
         throw new MembershipError('SEAT_LIMIT_REACHED');
       }
+      const invite = await getAdminDb().doc(`invites/${email}`).get();
+      if (invite.exists && invite.data()?.orgId !== input.orgId) throw new MembershipError('ACCOUNT_IN_OTHER_NEWSROOM');
     }
     let createdAccount: AccountLookup | null = null;
     try {

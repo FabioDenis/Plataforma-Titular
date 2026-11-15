@@ -389,11 +389,15 @@ function fakeAuth(req: any, res: any, next: any) {
   return next();
 }
 
-async function withTeamApp(accounts: Account[], run: (baseUrl: string) => Promise<void>) {
+async function withTeamApp(
+  accounts: Account[],
+  run: (baseUrl: string) => Promise<void>,
+  findAccount: (email: string) => Promise<Account | null> = directory(...accounts)
+) {
   const app = await createApp({
     verifyAuth: fakeAuth as any,
     skipStatic: true,
-    membership: { findAccount: directory(...accounts), createAccount: neverCreate, deleteAccount: async () => {} },
+    membership: { findAccount, createAccount: neverCreate, deleteAccount: async () => {} },
   });
   const server = createServer(app);
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -502,6 +506,67 @@ test('a full newsroom does not use up invitations, but a refusal that reveals an
       const limited = await fetch(`${baseUrl}/api/team/members`, { method: 'POST', headers: as(full.manager), body: JSON.stringify({ email: later.email }) });
       assert.equal(limited.status, 429);
     });
+  } finally {
+    delete process.env.TEAM_INVITES_PER_HOUR;
+  }
+});
+
+test('a full newsroom answers seat limit reached for every new email, revealing nothing about other newsrooms', async () => {
+  const full = await managedNewsroom(1);
+  const other = await managedNewsroom(5);
+  const outsider = account();
+  const invitedElsewhere = account(false);
+  await addOrganizationMember({ orgId: other.orgId, email: outsider.email, invitedByUid: 'platform-admin' }, directory(outsider));
+  await addOrganizationMember({ orgId: other.orgId, email: invitedElsewhere.email, invitedByUid: 'platform-admin' }, directory(invitedElsewhere));
+  const find = directory(full.manager, outsider, invitedElsewhere);
+
+  for (const email of [outsider.email, invitedElsewhere.email, `unknown-${Date.now()}@example.test`]) {
+    await assert.rejects(
+      addOrganizationMember({ orgId: full.orgId, email, invitedByUid: full.manager.uid, actor: managedBy(full.manager.uid) }, find, neverCreate),
+      isCode('SEAT_LIMIT_REACHED'),
+      email
+    );
+  }
+});
+
+test('a refusal because the account is a platform admin uses up an invitation', async () => {
+  const { manager } = await managedNewsroom(5);
+  const platformAdmin = account();
+  const later = account(false);
+  await bootstrapAccount(platformAdmin);
+  await getAdminDb().doc(`users/${platformAdmin.uid}`).set({ isAdmin: true }, { merge: true });
+  process.env.TEAM_INVITES_PER_HOUR = '1';
+  try {
+    await withTeamApp([manager, platformAdmin, later], async (baseUrl) => {
+      const refused = await fetch(`${baseUrl}/api/team/members`, { method: 'POST', headers: as(manager), body: JSON.stringify({ email: platformAdmin.email }) });
+      assert.equal((await refused.json()).code, 'ACCOUNT_IN_OTHER_NEWSROOM');
+      const limited = await fetch(`${baseUrl}/api/team/members`, { method: 'POST', headers: as(manager), body: JSON.stringify({ email: later.email }) });
+      assert.equal(limited.status, 429);
+    });
+  } finally {
+    delete process.env.TEAM_INVITES_PER_HOUR;
+  }
+});
+
+test('a server failure while inviting does not use up an invitation', async () => {
+  const { manager } = await managedNewsroom(5);
+  const later = account(false);
+  let failNext = true;
+  const flakyFind = async (email: string) => {
+    if (failNext) {
+      failNext = false;
+      throw new Error('auth lookup unavailable');
+    }
+    return directory(manager, later)(email);
+  };
+  process.env.TEAM_INVITES_PER_HOUR = '1';
+  try {
+    await withTeamApp([manager, later], async (baseUrl) => {
+      const failed = await fetch(`${baseUrl}/api/team/members`, { method: 'POST', headers: as(manager), body: JSON.stringify({ email: later.email }) });
+      assert.equal(failed.status, 500);
+      const retried = await fetch(`${baseUrl}/api/team/members`, { method: 'POST', headers: as(manager), body: JSON.stringify({ email: later.email }) });
+      assert.equal(retried.status, 200);
+    }, flakyFind);
   } finally {
     delete process.env.TEAM_INVITES_PER_HOUR;
   }

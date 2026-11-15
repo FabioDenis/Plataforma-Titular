@@ -123,9 +123,10 @@ npx firebase hosting:rollback
 - The platform admin is never limited by the seat limit, and lowering the limit never
   removes anyone: it only blocks new accounts until seats free up.
 - Manager invitations are limited per manager by `TEAM_INVITES_PER_HOUR` (default `20`,
-  in-memory like the other rate limits). A full newsroom or an invalid email does not use up
-  an invitation; refusals that reveal another newsroom or a platform admin do, so emails cannot
-  be probed without limit.
+  in-memory like the other rate limits). Only refusals that reveal another newsroom or a
+  platform admin use up an invitation; a full newsroom, an invalid email or a server failure
+  does not. A full newsroom answers "seat limit reached" for every new email, so it reveals
+  nothing about other accounts.
 
 ### 4.6 Cost expectations
 
