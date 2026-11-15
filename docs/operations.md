@@ -109,6 +109,25 @@ npx firebase hosting:rollback
 - Adjust trial/plan limits: `TRIAL_PUBLICATIONS` and `PLAN_*` env vars (see
   `docs/deployment.md` §5.2), then redeploy the revision.
 
+### 4.5.1 Newsroom seats and team manager
+
+- In the Admin panel, each newsroom has a **seat limit** ("Cupo de cuentas", optional at
+  creation, editable later; empty means no limit) and a **manager** ("Hacer responsable" on
+  one of its accounts). Seats are the owner, the active accounts and the pending invites.
+- The manager sees "Equipo del medio" in its user menu and can invite and remove accounts of
+  its own newsroom through `/api/team/members` while seats are free. It cannot change the
+  limit or the lifecycle, cannot remove itself, cannot add an account that belongs to (or is
+  invited to) another newsroom or a platform admin, and cannot manage a suspended newsroom.
+  The empty personal newsroom an account gets when it signs in without one (self-created, in
+  preparation, no team) does not count as belonging to another newsroom.
+- The platform admin is never limited by the seat limit, and lowering the limit never
+  removes anyone: it only blocks new accounts until seats free up.
+- Manager invitations are limited per manager by `TEAM_INVITES_PER_HOUR` (default `20`,
+  in-memory like the other rate limits). Only refusals that reveal another newsroom or a
+  platform admin use up an invitation; a full newsroom, an invalid email or a server failure
+  does not. A full newsroom answers "seat limit reached" for every new email, so it reveals
+  nothing about other accounts.
+
 ### 4.6 Cost expectations
 
 Cloud Run scales to zero (no traffic → no charge). At current usage the monthly

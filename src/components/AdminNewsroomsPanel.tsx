@@ -17,6 +17,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { OrganizationMembersPanel } from './OrganizationMembersPanel';
 import { describeTotalCost, summarizeNewsrooms } from '../utils/newsroomTotals';
+import { parseSeatLimitInput } from '../utils/teamSeats';
 
 type NewsroomStatus = 'draft' | 'active' | 'suspended';
 
@@ -33,6 +34,11 @@ interface NewsroomRow {
   ownerEmail: string;
   membersCount: number;
   pendingInvites: number;
+  /** Null when the newsroom has no seat limit. */
+  seatLimit: number | null;
+  /** Owner, members and pending invites. */
+  seatsUsed: number;
+  managerEmail: string;
   createdAt: string;
   lastGenerationAt: string | null;
   totalPublications: number;
@@ -107,6 +113,8 @@ export const AdminNewsroomsPanel: React.FC<AdminNewsroomsPanelProps> = ({ isOpen
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [newName, setNewName] = useState('');
+  const [newSeatLimit, setNewSeatLimit] = useState('');
+  const [seatLimitDraft, setSeatLimitDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [usage, setUsage] = useState<MonthlyUsage[] | null>(null);
   const [usageFailed, setUsageFailed] = useState(false);
@@ -144,6 +152,11 @@ export const AdminNewsroomsPanel: React.FC<AdminNewsroomsPanelProps> = ({ isOpen
   }, [isOpen, loadNewsrooms]);
 
   const selected = newsrooms.find((n) => n.id === selectedId) || null;
+
+  // The seat limit field shows the selected newsroom's current limit.
+  useEffect(() => {
+    setSeatLimitDraft(selected?.seatLimit ? String(selected.seatLimit) : '');
+  }, [selected?.id, selected?.seatLimit]);
 
   useEffect(() => {
     setUsage(null);
@@ -187,14 +200,37 @@ export const AdminNewsroomsPanel: React.FC<AdminNewsroomsPanelProps> = ({ isOpen
     const name = newName.trim();
     if (!name) return;
     run(async () => {
+      const seatLimit = parseSeatLimitInput(newSeatLimit);
+      if (seatLimit === 'invalid') throw new Error('El cupo debe ser un número entero entre 1 y 1000, o vacío para no tener cupo.');
       const data = await readJson(
-        await authFetch('/api/admin/organizations', { method: 'POST', body: JSON.stringify({ name }) }),
+        await authFetch('/api/admin/organizations', { method: 'POST', body: JSON.stringify({ name, seatLimit }) }),
         'No se pudo crear el medio.'
       );
       setNewName('');
+      setNewSeatLimit('');
       await loadNewsrooms();
       setSelectedId(data.organizationId);
-      return `"${name}" creado en preparación. Cargá su identidad y plantillas, activalo y sumá las cuentas del cliente.`;
+      return `"${name}" creado en preparación. Cargá su identidad y plantillas, activalo, sumá las cuentas del cliente y elegí a su responsable.`;
+    });
+  };
+
+  const handleSeatLimit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selected) return;
+    run(async () => {
+      const seatLimit = parseSeatLimitInput(seatLimitDraft);
+      if (seatLimit === 'invalid') throw new Error('El cupo debe ser un número entero entre 1 y 1000, o vacío para no tener cupo.');
+      await readJson(
+        await authFetch(`/api/admin/organizations/${encodeURIComponent(selected.id)}/seat-limit`, {
+          method: 'POST',
+          body: JSON.stringify({ seatLimit }),
+        }),
+        'No se pudo cambiar el cupo del medio.'
+      );
+      await loadNewsrooms();
+      return seatLimit === null
+        ? `${selected.name} quedó sin cupo de cuentas.`
+        : `El cupo de ${selected.name} ahora es de ${seatLimit} ${seatLimit === 1 ? 'cuenta' : 'cuentas'}. Nadie pierde el acceso si ya hay más.`;
     });
   };
 
@@ -289,7 +325,7 @@ export const AdminNewsroomsPanel: React.FC<AdminNewsroomsPanelProps> = ({ isOpen
         <div className="flex min-h-0 flex-1 flex-col md:flex-row">
           {/* Newsroom list */}
           <aside className="flex min-h-0 flex-col border-b border-brand-navy/10 md:w-[22rem] md:border-b-0 md:border-r">
-            <form onSubmit={handleCreate} className="flex gap-2 border-b border-brand-navy/10 p-3">
+            <form onSubmit={handleCreate} className="flex flex-wrap gap-2 border-b border-brand-navy/10 p-3">
               <label htmlFor="admin-new-newsroom" className="sr-only">Nombre del nuevo medio</label>
               <input
                 id="admin-new-newsroom"
@@ -300,6 +336,19 @@ export const AdminNewsroomsPanel: React.FC<AdminNewsroomsPanelProps> = ({ isOpen
                 onChange={(e) => setNewName(e.target.value)}
                 placeholder="Nombre del nuevo medio"
                 className="min-w-0 flex-1 rounded-lg border border-brand-navy/15 px-3 py-2 text-xs focus:border-brand-primary focus:outline-none"
+              />
+              <label htmlFor="admin-new-seat-limit" className="sr-only">Cupo de cuentas (opcional)</label>
+              <input
+                id="admin-new-seat-limit"
+                type="number"
+                min={1}
+                max={1000}
+                step={1}
+                value={newSeatLimit}
+                onChange={(e) => setNewSeatLimit(e.target.value)}
+                placeholder="Cupo"
+                title="Cupo de cuentas (opcional). Vacío: sin cupo."
+                className="w-20 rounded-lg border border-brand-navy/15 px-2 py-2 text-xs focus:border-brand-primary focus:outline-none"
               />
               <button
                 type="submit"
@@ -353,8 +402,10 @@ export const AdminNewsroomsPanel: React.FC<AdminNewsroomsPanelProps> = ({ isOpen
                           costo
                         </span>
                         <span>
-                          <strong className="block font-mono text-xs text-brand-ink tabular-nums">{n.membersCount + (n.ownerEmail ? 1 : 0)}</strong>
-                          cuentas
+                          <strong className="block font-mono text-xs text-brand-ink tabular-nums">
+                            {n.seatLimit === null ? n.seatsUsed : `${n.seatsUsed}/${n.seatLimit}`}
+                          </strong>
+                          {n.seatLimit === null ? 'cuentas' : 'cupo'}
                         </span>
                       </span>
                     </button>
@@ -436,6 +487,40 @@ export const AdminNewsroomsPanel: React.FC<AdminNewsroomsPanelProps> = ({ isOpen
                     )}
                   </div>
                 </div>
+
+                <form onSubmit={handleSeatLimit} className="rounded-xl border border-brand-navy/15 p-5">
+                  <h4 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-brand-navy/80">
+                    <Users className="h-3.5 w-3.5" /> Cupo y responsable
+                  </h4>
+                  <p className="mt-1 text-xs text-brand-navy/60">
+                    {selected.managerEmail
+                      ? `Responsable: ${selected.managerEmail}. Puede invitar y quitar cuentas hasta llenar el cupo.`
+                      : 'Sin responsable: elegilo en el equipo con "Hacer responsable" para que gestione sus cuentas.'}{' '}
+                    El cupo cuenta al responsable, las cuentas activas y las invitaciones pendientes.
+                  </p>
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <label htmlFor="admin-seat-limit" className="text-xs text-brand-navy/80">Cupo de cuentas</label>
+                    <input
+                      id="admin-seat-limit"
+                      type="number"
+                      min={1}
+                      max={1000}
+                      step={1}
+                      value={seatLimitDraft}
+                      onChange={(e) => setSeatLimitDraft(e.target.value)}
+                      placeholder="Sin cupo"
+                      className="w-24 rounded-lg border border-brand-navy/15 px-2 py-1.5 text-xs focus:border-brand-primary focus:outline-none"
+                    />
+                    <button
+                      type="submit"
+                      disabled={busy}
+                      className="rounded-lg border border-brand-navy/20 px-3 py-1.5 text-xs font-medium text-brand-navy hover:bg-brand-navy/5 disabled:opacity-50"
+                    >
+                      Guardar cupo
+                    </button>
+                    <span className="text-[11px] text-brand-navy/50">Vacío: sin cupo.</span>
+                  </div>
+                </form>
 
                 <OrganizationMembersPanel
                   orgId={selected.id}

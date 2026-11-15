@@ -12,6 +12,7 @@ import { IdentitySection } from './components/IdentitySection';
 import { AuthModal } from './components/AuthModal';
 import { AdminNewsroomsPanel } from './components/AdminNewsroomsPanel';
 import { EmailVerificationBanner } from './components/EmailVerificationBanner';
+import { TeamModal } from './components/TeamModal';
 import { AdminWorkspaceBanner } from './components/AdminWorkspaceBanner';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { OrganizationProvider, useOrganization } from './context/OrganizationContext';
@@ -54,6 +55,7 @@ function MainAppContent() {
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isIntegrationsOpen, setIsIntegrationsOpen] = useState(false);
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
+  const [isTeamOpen, setIsTeamOpen] = useState(false);
 
   const activeIdentity: OrganizationIdentity =
     identities.find((i) => i.id === activeIdentityId) ||
@@ -262,6 +264,7 @@ function MainAppContent() {
           onOpenHistory={() => setIsHistoryOpen(true)}
           onOpenIntegrations={() => setIsIntegrationsOpen(true)}
           onOpenAdmin={() => setIsAdminModalOpen(true)}
+          onOpenTeam={() => setIsTeamOpen(true)}
           savedCount={history.length}
         />
 
@@ -388,6 +391,8 @@ function MainAppContent() {
         onClose={() => setIsAdminModalOpen(false)}
         onOpenOrganization={() => setActiveView('identity')}
       />
+
+      <TeamModal isOpen={isTeamOpen} onClose={() => setIsTeamOpen(false)} />
     </div>
   );
 }

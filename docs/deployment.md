@@ -149,6 +149,7 @@ and Firebase Auth.
 | `FIRESTORE_DATABASE_ID` | `(default)` |
 | `TRIAL_PUBLICATIONS`, `MAX_ARTICLE_INPUT_CHARS` | limits |
 | `EXTRACT_RATE_LIMIT_PER_MINUTE`, `PROXY_IMAGE_RATE_LIMIT_PER_MINUTE` | per-user request limits (defaults `30` and `120`); in-memory, valid only with `--max-instances 1` |
+| `TEAM_INVITES_PER_HOUR` | invitations a newsroom manager can send per hour (default `20`); in-memory, same caveat |
 | `PLAN_*_PUBLICATIONS`, `PLAN_*_PRICE_ARS`, `PACK_*_PRICE_ARS` | billing catalog |
 | `GEMINI_PRIMARY_MODEL`, `GEMINI_FALLBACK_MODELS`, `GEMINI_*_TIMEOUT_MS`, `GEMINI_RETRY_*` | tuning; sane defaults exist |
 | `META_GRAPH_VERSION` | default `v22.0` |
