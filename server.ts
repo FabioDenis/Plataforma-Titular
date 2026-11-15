@@ -696,8 +696,12 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
           );
           return res.json(result);
         } catch (err) {
-          // Only invitations that go through count toward the hourly limit.
-          consumeTeamInvite.release(req.user!.uid);
+          // A full newsroom or a mistyped email does not use up an invitation. Refusals that reveal
+          // something about other accounts (another newsroom, a platform admin) still count, so
+          // they cannot be used to probe emails without limit.
+          if (err instanceof MembershipError && (err.code === 'SEAT_LIMIT_REACHED' || err.code === 'INVALID_EMAIL')) {
+            consumeTeamInvite.release(req.user!.uid, decision);
+          }
           throw err;
         }
       } catch (err) {

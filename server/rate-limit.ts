@@ -11,6 +11,8 @@ const MAX_TRACKED_KEYS = 10000;
 export function createRateLimiter(options: { windowMs: number; max: number; now?: () => number }) {
   const now = options.now || Date.now;
   const windows = new Map<string, { startedAt: number; count: number }>();
+  // Which window each allowed decision was charged to, so a late release never touches a newer one.
+  const chargedWindow = new WeakMap<RateLimitDecision, { startedAt: number; count: number }>();
 
   function consume(key: string): RateLimitDecision {
     const current = now();
@@ -29,13 +31,19 @@ export function createRateLimiter(options: { windowMs: number; max: number; now?
       return { allowed: false, retryAfterSeconds: Math.ceil((window.startedAt + options.windowMs - current) / 1000) };
     }
     window.count += 1;
-    return { allowed: true, retryAfterSeconds: 0 };
+    const decision = { allowed: true, retryAfterSeconds: 0 };
+    chargedWindow.set(decision, window);
+    return decision;
   }
 
-  /** Gives back one use of the current window, for attempts that should not count (e.g. they failed). */
-  function release(key: string): void {
-    const window = windows.get(key);
-    if (window && window.count > 0) window.count -= 1;
+  /**
+   * Gives back the use charged by `decision`, for attempts that should not count. It does nothing
+   * if that window already ended, and gives back each decision at most once.
+   */
+  function release(key: string, decision: RateLimitDecision): void {
+    const window = chargedWindow.get(decision);
+    chargedWindow.delete(decision);
+    if (window && windows.get(key) === window && window.count > 0) window.count -= 1;
   }
 
   return Object.assign(consume, { release });

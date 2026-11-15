@@ -482,6 +482,31 @@ test('only invitations that succeed count toward the hourly limit', async () => 
   }
 });
 
+test('a full newsroom does not use up invitations, but a refusal that reveals another newsroom does', async () => {
+  const full = await managedNewsroom(1);
+  const other = await managedNewsroom(5);
+  const outsider = account();
+  const later = account(false);
+  await addOrganizationMember({ orgId: other.orgId, email: outsider.email, invitedByUid: 'platform-admin' }, directory(outsider));
+  await setOrganizationSeatLimit({ orgId: full.orgId, seatLimit: 1 });
+  process.env.TEAM_INVITES_PER_HOUR = '1';
+  try {
+    await withTeamApp([full.manager, outsider, later], async (baseUrl) => {
+      const seatFull = await fetch(`${baseUrl}/api/team/members`, { method: 'POST', headers: as(full.manager), body: JSON.stringify({ email: later.email }) });
+      assert.equal((await seatFull.json()).code, 'SEAT_LIMIT_REACHED');
+      await setOrganizationSeatLimit({ orgId: full.orgId, seatLimit: 5 });
+
+      const revealing = await fetch(`${baseUrl}/api/team/members`, { method: 'POST', headers: as(full.manager), body: JSON.stringify({ email: outsider.email }) });
+      assert.equal((await revealing.json()).code, 'ACCOUNT_IN_OTHER_NEWSROOM');
+
+      const limited = await fetch(`${baseUrl}/api/team/members`, { method: 'POST', headers: as(full.manager), body: JSON.stringify({ email: later.email }) });
+      assert.equal(limited.status, 429);
+    });
+  } finally {
+    delete process.env.TEAM_INVITES_PER_HOUR;
+  }
+});
+
 test('a suspended newsroom cannot be managed through the team endpoints', async () => {
   const { orgId, manager } = await managedNewsroom(3);
   await getAdminDb().doc(`organizations/${orgId}`).set({ status: 'suspended' }, { merge: true });
