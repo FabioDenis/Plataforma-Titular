@@ -36,7 +36,8 @@ export interface SafeFetchDependencies {
 const DEFAULT_ALLOWED_PORTS = [80, 443];
 const DEFAULT_TIMEOUT_MS = 10000;
 const DEFAULT_MAX_BYTES = 5 * 1024 * 1024;
-const DEFAULT_MAX_REDIRECTS = 3;
+// Enough for http -> https -> www -> canonical chains; every hop is validated again.
+const DEFAULT_MAX_REDIRECTS = 5;
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 const NULL_BODY_STATUSES = new Set([204, 205, 304]);
 const INTERNAL_NAME_SUFFIXES = ['.localhost', '.local', '.internal'];
@@ -145,6 +146,31 @@ function unsafeUrl(): SafeFetchError {
   return new SafeFetchError('UNSAFE_URL', 'The URL points to a destination that is not allowed.');
 }
 
+function tooLarge(): SafeFetchError {
+  return new SafeFetchError('RESPONSE_TOO_LARGE', 'The remote response exceeds the allowed size.');
+}
+
+const DECODED_ENCODINGS = new Set(['gzip', 'x-gzip', 'deflate', 'br']);
+
+// "deflate" should carry a zlib header, but some servers send raw deflate data instead.
+function hasZlibHeader(body: Buffer): boolean {
+  return body.length >= 2 && (body[0] & 0x0f) === 8 && ((body[0] << 8) | body[1]) % 31 === 0;
+}
+
+// The limit applies to decoded bytes, so a small compressed body cannot expand past it.
+function decodeBody(encoding: string, body: Buffer, maxBytes: number): Buffer {
+  if (body.length === 0) return body;
+  const options = { maxOutputLength: maxBytes };
+  try {
+    if (encoding === 'br') return zlib.brotliDecompressSync(body, options);
+    if (encoding === 'deflate') return hasZlibHeader(body) ? zlib.inflateSync(body, options) : zlib.inflateRawSync(body, options);
+    return zlib.gunzipSync(body, options);
+  } catch (error: any) {
+    if (error?.code === 'ERR_BUFFER_TOO_LARGE') throw tooLarge();
+    throw new SafeFetchError('BAD_RESPONSE', 'The remote response could not be decoded.');
+  }
+}
+
 export function createSafeFetch(dependencies: SafeFetchDependencies = {}): SafeFetch {
   const baseLookup = (dependencies.lookup || dns.lookup) as any;
   const isBlocked = dependencies.isBlockedAddress || isBlockedAddress;
@@ -176,33 +202,29 @@ export function createSafeFetch(dependencies: SafeFetchDependencies = {}): SafeF
           request.destroy();
           return finish(Buffer.alloc(0));
         }
-        if (Number(response.headers['content-length']) > maxBytes) {
-          return fail(new SafeFetchError('RESPONSE_TOO_LARGE', 'The remote response exceeds the allowed size.'));
-        }
+        if (Number(response.headers['content-length']) > maxBytes) return fail(tooLarge());
 
-        const encoding = String(response.headers['content-encoding'] || '').toLowerCase();
-        const decoder =
-          encoding === 'gzip' || encoding === 'x-gzip' ? zlib.createGunzip()
-          : encoding === 'deflate' ? zlib.createInflate()
-          : encoding === 'br' ? zlib.createBrotliDecompress()
-          : null;
-        const stream = decoder ? response.pipe(decoder) : response;
-        if (decoder) {
-          response.on('error', fail);
-          delete response.headers['content-encoding'];
-          delete response.headers['content-length'];
-        }
-
-        // The limit applies to decoded bytes, so a small compressed body cannot expand past it.
+        // The encoded body can never be larger than the decoded one, so it shares the same cap.
         const chunks: Buffer[] = [];
         let received = 0;
-        stream.on('data', (chunk: Buffer) => {
+        response.on('data', (chunk: Buffer) => {
           received += chunk.length;
-          if (received > maxBytes) return fail(new SafeFetchError('RESPONSE_TOO_LARGE', 'The remote response exceeds the allowed size.'));
+          if (received > maxBytes) return fail(tooLarge());
           chunks.push(chunk);
         });
-        stream.on('end', () => finish(Buffer.concat(chunks)));
-        stream.on('error', fail);
+        response.on('end', () => {
+          const encoding = String(response.headers['content-encoding'] || '').toLowerCase();
+          if (!DECODED_ENCODINGS.has(encoding)) return finish(Buffer.concat(chunks));
+          try {
+            const body = decodeBody(encoding, Buffer.concat(chunks), maxBytes);
+            delete response.headers['content-encoding'];
+            delete response.headers['content-length'];
+            finish(body);
+          } catch (error: any) {
+            fail(error);
+          }
+        });
+        response.on('error', fail);
       });
 
       function fail(error: Error) {

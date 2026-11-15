@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { createServer, type RequestListener } from 'node:http';
 import test from 'node:test';
+import zlib from 'node:zlib';
 import { createSafeFetch, isBlockedAddress, isPublicHttpUrl, SafeFetchError } from './safe-fetch';
 
 // Fake resolver: no test in this file touches real DNS or the network.
@@ -179,6 +180,82 @@ test('a redirect chain longer than the limit is rejected', async () => {
     const safeFetch = localFetch(port, { 'news.example.test': '127.0.0.1' });
     await rejectsWith(safeFetch(`http://news.example.test:${port}/`, { maxRedirects: 3 }), 'TOO_MANY_REDIRECTS');
     assert.equal(hits(), 4);
+  });
+});
+
+test('the default redirect limit follows five hops and rejects the sixth', async () => {
+  await withOrigin((req, res) => {
+    const url = new URL(req.url || '/', 'http://x');
+    const step = Number(url.searchParams.get('n') || 0);
+    const stop = Number(url.searchParams.get('stop'));
+    if (step >= stop) {
+      res.writeHead(200, { 'content-type': 'text/plain' });
+      return res.end('arrived');
+    }
+    res.writeHead(302, { location: `/?n=${step + 1}&stop=${stop}` });
+    return res.end();
+  }, async (port) => {
+    const safeFetch = localFetch(port, { 'news.example.test': '127.0.0.1' });
+    const arrived = await safeFetch(`http://news.example.test:${port}/?n=0&stop=5`);
+    assert.equal(await arrived.text(), 'arrived');
+    await rejectsWith(safeFetch(`http://news.example.test:${port}/?n=0&stop=6`), 'TOO_MANY_REDIRECTS');
+  });
+});
+
+test('compressed responses are decoded for every advertised encoding', async () => {
+  const text = 'Council approves the new transport plan. '.repeat(50);
+  const encoded: Record<string, [string, Buffer]> = {
+    '/gzip': ['gzip', zlib.gzipSync(text)],
+    '/br': ['br', zlib.brotliCompressSync(text)],
+    '/deflate': ['deflate', zlib.deflateSync(text)],
+    // Some servers send raw deflate data without the zlib header.
+    '/raw-deflate': ['deflate', zlib.deflateRawSync(text)],
+  };
+  await withOrigin((req, res) => {
+    const [encoding, body] = encoded[req.url || ''];
+    res.writeHead(200, { 'content-type': 'text/html', 'content-encoding': encoding, 'content-length': String(body.length) });
+    res.end(body);
+  }, async (port) => {
+    const safeFetch = localFetch(port, { 'news.example.test': '127.0.0.1' });
+    for (const path of Object.keys(encoded)) {
+      const response = await safeFetch(`http://news.example.test:${port}${path}`);
+      assert.equal(await response.text(), text, path);
+      assert.equal(response.headers.get('content-encoding'), null, path);
+    }
+  });
+});
+
+test('an empty body marked as compressed is returned empty', async () => {
+  await withOrigin((_req, res) => {
+    res.writeHead(200, { 'content-type': 'image/png', 'content-encoding': 'gzip', 'content-length': '0' });
+    res.end();
+  }, async (port) => {
+    const safeFetch = localFetch(port, { 'news.example.test': '127.0.0.1' });
+    const response = await safeFetch(`http://news.example.test:${port}/`);
+    assert.equal(response.status, 200);
+    assert.equal((await response.arrayBuffer()).byteLength, 0);
+  });
+});
+
+test('a small compressed body that expands past maxBytes is rejected', async () => {
+  const bomb = zlib.gzipSync(Buffer.alloc(1024 * 1024));
+  await withOrigin((_req, res) => {
+    res.writeHead(200, { 'content-type': 'text/html', 'content-encoding': 'gzip', 'content-length': String(bomb.length) });
+    res.end(bomb);
+  }, async (port) => {
+    assert.ok(bomb.length < 64 * 1024);
+    const safeFetch = localFetch(port, { 'news.example.test': '127.0.0.1' });
+    await rejectsWith(safeFetch(`http://news.example.test:${port}/`, { maxBytes: 64 * 1024 }), 'RESPONSE_TOO_LARGE');
+  });
+});
+
+test('a body that cannot be decoded is reported as a bad response', async () => {
+  await withOrigin((_req, res) => {
+    res.writeHead(200, { 'content-type': 'text/html', 'content-encoding': 'gzip' });
+    res.end('this is not gzip');
+  }, async (port) => {
+    const safeFetch = localFetch(port, { 'news.example.test': '127.0.0.1' });
+    await rejectsWith(safeFetch(`http://news.example.test:${port}/`), 'BAD_RESPONSE');
   });
 });
 

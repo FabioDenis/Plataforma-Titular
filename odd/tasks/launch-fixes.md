@@ -13,12 +13,13 @@ Branch: `fix/outbound-fetch-hardening` · Delivery: ask-on-risk · Runner: `npm 
 
 ## Tasks
 
-- [ ] T1 · S1 · inline · invitations rollback
-- [ ] T2 · S2 · inline · admin panel numbers
-- [ ] T3 · S3 · inline · proxy image sniffing
-- [ ] T4 · S4, S5 · inline · safe-fetch redirects and decoding
+- [x] T1 · S1 · inline · invitations rollback · `a1b8ef3` (RED 3 tests, GREEN 22/22 emulator)
+- [x] T2 · S2 · inline · admin panel numbers · `58de172` (RED module missing, GREEN 3/3; build OK; browser check pending)
+- [x] T3 · S3 · inline · proxy image sniffing · `840dc41` (RED 3, GREEN 15/15)
+- [x] T4 · S4, S5 · inline · safe-fetch redirects and decoding · see L3 (RED 4, GREEN 20/20)
 
 ## Log
 
 - L1 (2026-11-14) User: "si, que cambios harias y como funcionaria?" then "si" to the five-fix plan (invitations, admin panel, image proxy, redirects, decompression), one commit per fix on this branch, no push.
 - L2 Route: inline for all tasks (no writer trigger: units are small and sequential). T1 touches account creation (risk item 2) and gets an independent verifier.
+- L3 T4 decodes after buffering with zlib sync helpers and `maxOutputLength`, instead of streaming decoders; undecodable bodies now raise BAD_RESPONSE. Real-site smoke test (Clarín, La Nación, Wikipedia) OK. Full suites: unit 58/58, emulator 73/73, lint clean.
