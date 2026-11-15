@@ -44,6 +44,15 @@ async function newsroom() {
   return { owner, orgId: result.organization.id };
 }
 
+// Invitation-only: by default the server creates the Auth account for a new email.
+const noAccountCreation = null;
+const created: Account[] = [];
+async function createAccount(email: string) {
+  const acc = { uid: `created-${created.length}-${Date.now()}`, email, emailVerified: true };
+  created.push(acc);
+  return acc;
+}
+
 const isCode = (code: string) => (error: unknown) => error instanceof MembershipError && error.code === code;
 
 test('admin adds a verified registered account and it joins the newsroom immediately', async () => {
@@ -74,7 +83,7 @@ test('an unregistered email becomes a pending invite accepted on its first verif
   const { orgId } = await newsroom();
   const reporter = account();
 
-  const pending = await addOrganizationMember({ orgId, email: reporter.email, invitedByUid: 'admin' }, directory());
+  const pending = await addOrganizationMember({ orgId, email: reporter.email, invitedByUid: 'admin' }, directory(), noAccountCreation);
   assert.deepEqual(pending, { status: 'pending', email: reporter.email });
 
   assert.equal(await acceptPendingInvites(reporter), orgId);
@@ -126,7 +135,7 @@ test('removing a member revokes access and returns them to their own account on 
 test('removing a pending invite deletes it', async () => {
   const { orgId } = await newsroom();
   const reporter = account();
-  await addOrganizationMember({ orgId, email: reporter.email, invitedByUid: 'admin' }, directory());
+  await addOrganizationMember({ orgId, email: reporter.email, invitedByUid: 'admin' }, directory(), noAccountCreation);
 
   await removeOrganizationMember({ orgId, email: reporter.email }, directory());
 
@@ -139,7 +148,7 @@ test('the listing shows owner, active members and pending invites', async () => 
   await bootstrapAccount(active);
   const invited = account();
   await addOrganizationMember({ orgId, email: active.email, invitedByUid: 'admin' }, directory(active));
-  await addOrganizationMember({ orgId, email: invited.email, invitedByUid: 'admin' }, directory());
+  await addOrganizationMember({ orgId, email: invited.email, invitedByUid: 'admin' }, directory(), noAccountCreation);
 
   const listing = await listOrganizationMembers(orgId);
 
@@ -187,14 +196,14 @@ test('a rejected owner removal leaves every document untouched', async () => {
 
 // --- Newsrooms managed by the platform admin ---
 
-test('an admin creates an ownerless newsroom with the trial balance and then adds the client accounts', async () => {
+test('an admin creates an ownerless newsroom in preparation and then adds the client accounts', async () => {
   const orgId = await createManagedOrganization({ name: '  Radio Sol  ', adminUid: 'platform-admin' });
   const db = getAdminDb();
   const org = (await db.doc(`organizations/${orgId}`).get()).data()!;
   assert.equal(org.name, 'Radio Sol');
   assert.equal(org.ownerUid, '');
   assert.deepEqual(org.members, []);
-  assert.equal(org.publicationLimit, 3);
+  assert.equal(org.status, 'draft');
   assert.equal(org.publicationUsed, 0);
   assert.equal(org.createdByAdminUid, 'platform-admin');
 
@@ -251,4 +260,101 @@ test('an admin listed in ADMIN_EMAILS gets the admin flag the Firestore rules re
   await bootstrapAccount(regular);
   assert.equal(await syncPlatformAdminFlag(regular.uid, regular.email), false);
   assert.equal((await getAdminDb().doc(`users/${regular.uid}`).get()).data()!.isAdmin, undefined);
+});
+
+// --- Invitation-only access ---
+
+test('adding an email without an account creates the account and links it to the newsroom', async () => {
+  const { orgId } = await newsroom();
+  const email = `new-${Date.now()}@example.test`;
+
+  const result = await addOrganizationMember({ orgId, email, invitedByUid: 'admin' }, directory(), createAccount);
+
+  const account = created.find((a) => a.email === email)!;
+  assert.deepEqual(result, { status: 'created', email, uid: account.uid });
+  const db = getAdminDb();
+  assert.deepEqual((await db.doc(`organizations/${orgId}`).get()).data()!.members, [account.uid]);
+  assert.equal((await db.doc(`users/${account.uid}`).get()).data()!.organizationId, orgId);
+  // Setting the password from the emailed link lands the person directly in the newsroom.
+  const session = await bootstrapAccount({ uid: account.uid, email });
+  assert.equal(session.organization.id, orgId);
+});
+
+test('an email registered between lookup and creation is linked as an existing account', async () => {
+  const { orgId } = await newsroom();
+  const racer = account();
+  let lookups = 0;
+  // First lookup misses; the account appears before createUser runs.
+  const find = async (email: string) => (lookups++ === 0 ? null : email === racer.email ? racer : null);
+  const failingCreate = async () => {
+    throw Object.assign(new Error('exists'), { code: 'auth/email-already-exists' });
+  };
+
+  const result = await addOrganizationMember({ orgId, email: racer.email, invitedByUid: 'admin' }, find, failingCreate);
+
+  assert.deepEqual(result, { status: 'active', email: racer.email, uid: racer.uid });
+});
+
+test('a failure creating the account is reported as account creation unavailable', async () => {
+  const { orgId } = await newsroom();
+  const denied = async () => {
+    throw Object.assign(new Error('insufficient permission'), { code: 'auth/insufficient-permission' });
+  };
+  const deleted: string[] = [];
+  await assert.rejects(
+    addOrganizationMember(
+      { orgId, email: `nobody-${Date.now()}@example.test`, invitedByUid: 'admin' },
+      directory(),
+      denied,
+      async (uid) => { deleted.push(uid); }
+    ),
+    isCode('ACCOUNT_CREATION_UNAVAILABLE')
+  );
+  assert.deepEqual(deleted, []);
+});
+
+test('a failure linking a newly created account removes it and is reported as membership unavailable', async () => {
+  const { orgId } = await newsroom();
+  const email = `broken-${Date.now()}@example.test`;
+  // A uid that is not a valid document id makes the linking step fail with a non-membership error.
+  const createBroken = async () => ({ uid: 'broken/uid', email, emailVerified: true });
+  const deleted: string[] = [];
+
+  await assert.rejects(
+    addOrganizationMember({ orgId, email, invitedByUid: 'admin' }, directory(), createBroken, async (uid) => { deleted.push(uid); }),
+    isCode('MEMBERSHIP_UNAVAILABLE')
+  );
+
+  assert.deepEqual(deleted, ['broken/uid']);
+  assert.equal((await getAdminDb().doc(`organizations/${orgId}`).get()).data()!.members, undefined);
+});
+
+test('a newly created account is removed when the newsroom disappears before linking', async () => {
+  const { orgId } = await newsroom();
+  const email = `orphan-${Date.now()}@example.test`;
+  const uid = `orphan-${Date.now()}`;
+  const createThenDeleteNewsroom = async () => {
+    await getAdminDb().doc(`organizations/${orgId}`).delete();
+    return { uid, email, emailVerified: true };
+  };
+  const deleted: string[] = [];
+
+  await assert.rejects(
+    addOrganizationMember({ orgId, email, invitedByUid: 'admin' }, directory(), createThenDeleteNewsroom, async (id) => { deleted.push(id); }),
+    isCode('ORGANIZATION_NOT_FOUND')
+  );
+
+  assert.deepEqual(deleted, [uid]);
+});
+
+test('a failed cleanup of the created account still reports the linking error', async () => {
+  const { orgId } = await newsroom();
+  const email = `cleanup-${Date.now()}@example.test`;
+  const createBroken = async () => ({ uid: 'cleanup/uid', email, emailVerified: true });
+  const failingDelete = async () => { throw new Error('auth unavailable'); };
+
+  await assert.rejects(
+    addOrganizationMember({ orgId, email, invitedByUid: 'admin' }, directory(), createBroken, failingDelete),
+    isCode('MEMBERSHIP_UNAVAILABLE')
+  );
 });

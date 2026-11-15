@@ -9,7 +9,9 @@ Firebase Hosting `titular-53a66`, reglas de Firestore desplegadas, bundle en viv
       `index-B9uew5I7.js` (sin el editor nuevo, sin handoff IG/FB, sin publicar
       directo). Local ya compilado: `index-D2aua7uG.js`.
       Fix: `firebase deploy --only hosting`.
-- [ ] **B2. Credenciales MercadoPago en Cloud Run.** Faltan
+- [x] ~~**B2. Credenciales MercadoPago en Cloud Run.**~~ Ya no aplica (2026-10-29):
+      Titular se cobra con abono fijo fuera de la app; no hay checkout ni créditos.
+      Detalle original: Faltan
       `MERCADOPAGO_ACCESS_TOKEN` y `MERCADOPAGO_WEBHOOK_SECRET` (único secret
       existente: `GEMINI_API_KEY`). Sin esto no hay checkout ni webhooks firmados.
       Fix: `gcloud secrets create` + deploy del servicio.
@@ -42,6 +44,25 @@ Firebase Hosting `titular-53a66`, reglas de Firestore desplegadas, bundle en viv
       APP_URL, dominios autorizados de Firebase Auth, redirect URIs de Meta y
       MercadoPago.
 
+- [ ] **B7. Alta por invitación (modelo de abono fijo, 2026-10-29).** Pasos de consola:
+      1. IAM: `roles/firebaseauth.admin` para
+         `titular-api@titular-53a66.iam.gserviceaccount.com` (crea las cuentas
+         invitadas; hoy tiene `roles/firebaseauth.viewer`).
+      2. Firebase Console → Authentication → Settings → User actions: desactivar
+         **Enable create (sign-up)** para cerrar el registro público también por API.
+      3. Firebase Console → Authentication → Templates → Password reset: cambiar el
+         texto a "Creá tu contraseña para entrar a Titular" (lo usan las invitaciones).
+      4. Revisar los medios existentes en el panel y **suspender** los de prueba:
+         los medios previos siguen activos y generan con tu saldo de Gemini.
+- [ ] **B8. Alerta de presupuesto de Gemini.** Todo el consumo sale de una sola
+      cuenta: crear un budget alert en GCP Billing (50/90/100 %). El tope diario
+      por medio es `DAILY_GENERATION_CAP` (200 por defecto) o `dailyGenerationCap`
+      en el documento del medio.
+- [ ] **B9. Precios de Gemini.** El costo por medio usa la tabla de
+      `server/gemini.ts` (precios oficiales del 2026-10-28; el 1/1/2027 se
+      duplican y ya está cargado). Si Google cambia precios, actualizar
+      `GEMINI_PRICING_JSON` en Cloud Run sin tocar código.
+
 ## 🟡 Importantes antes de abrir al público
 
 - [x] **S1. Aislamiento multi-tenant en reglas.** Corregido en código
@@ -56,7 +77,7 @@ Firebase Hosting `titular-53a66`, reglas de Firestore desplegadas, bundle en viv
       unit + emulator para ai-generations y auth-bootstrap).
 - [ ] **S3. E2E en producción:** registro → bootstrap → identidad → procesar
       noticia → editor → publicar/handoff → consumo de publicaciones.
-- [ ] **S4. Pagos end-to-end:** con tarjetas de prueba de MercadoPago (alta de
+- [x] ~~**S4. Pagos end-to-end:**~~ Ya no aplica (abono fijo, sin pagos en la app). con tarjetas de prueba de MercadoPago (alta de
       plan, compra de pack, baja, webhook firmado rechazando payload inválido).
 - [ ] **S5. Monitoreo:** alertas Cloud Monitoring (5xx, latencia p95) sobre
       `titular-api` + Error Reporting activo.

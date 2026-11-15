@@ -1,7 +1,14 @@
 import { getOptionalNumberEnv } from './config/env';
 import { getAdminDb } from './firebase-admin';
 import { GeminiAttempt, GeminiFailureReason, GeminiResult } from './gemini';
-import { checkIsHermesAdmin, DEFAULT_TRIAL_PUBLICATION_LIMIT } from './billing';
+import { checkIsHermesAdmin } from './billing';
+import {
+  dailyGenerationCap,
+  dailyUsageCount,
+  OrganizationAccessError,
+  organizationLifecycle,
+  usageDay,
+} from './organization-lifecycle';
 import type { DocumentReference } from 'firebase-admin/firestore';
 
 export type GenerationState = 'reserved' | 'completed' | 'failed';
@@ -115,16 +122,17 @@ export async function startGeneration(input: {
       if (state === 'failed') throw new GenerationStateError('GENERATION_FAILED', input.generationId);
     }
 
+    // Flat fee with a single AI balance: the newsroom lifecycle decides access, never a credit counter.
+    if (!org.exists) throw new OrganizationAccessError('NO_ORGANIZATION', 403);
     const orgData = org.data() || {};
+    const lifecycle = organizationLifecycle(orgData);
+    if (lifecycle === 'draft') throw new OrganizationAccessError('ORGANIZATION_NOT_ACTIVE', 403);
+    if (lifecycle === 'suspended') throw new OrganizationAccessError('ORGANIZATION_SUSPENDED', 403);
+
     // The summaries are authoritative, so a stale counter cannot permanently block a new reservation.
     const activeReservations = activeReservationCount;
-    const publicationUsed = Number(orgData.publicationUsed || 0);
-    const publicationLimit = Number(orgData.publicationLimit ?? DEFAULT_TRIAL_PUBLICATION_LIMIT);
-    if (input.commercial && publicationUsed + activeReservations >= publicationLimit) {
-      const error = new Error('Has reached the publication limit for this plan.');
-      (error as any).code = 'INSUFFICIENT_CREDITS';
-      (error as any).statusCode = 402;
-      throw error;
+    if (input.commercial && dailyUsageCount(orgData, usageDay(now)) + activeReservations >= dailyGenerationCap(orgData)) {
+      throw new OrganizationAccessError('DAILY_LIMIT_REACHED', 429);
     }
 
     expiredReservationsDocs.forEach((reservation) => {
@@ -139,9 +147,6 @@ export async function startGeneration(input: {
     });
 
     transaction.set(orgRef, {
-      ...(org.exists ? {} : {
-        name: `Organization (${input.userId.slice(0, 8)})`, ownerUid: input.userId, plan: 'trial', publicationLimit, publicationUsed: 0,
-      }),
       activeGenerationReservations: input.commercial ? activeReservations + 1 : activeReservations,
       updatedAt: now,
     }, { merge: true });
@@ -209,10 +214,11 @@ function createTracker(
         const orgData = org.data() || {};
         const activeReservations = Number(orgData.activeGenerationReservations || 0);
         const publicationUsed = Number(orgData.publicationUsed || 0);
-        const publicationLimit = Number(orgData.publicationLimit ?? DEFAULT_TRIAL_PUBLICATION_LIMIT);
         const cost = result.estimatedCostUsd;
+        // publicationUsed is a lifetime usage counter for reporting; it never limits generation.
         const newUsed = input.commercial ? publicationUsed + 1 : publicationUsed;
-        remainingPublications = input.commercial ? Math.max(0, publicationLimit - newUsed) : null;
+        const day = usageDay(now);
+        const dailyUsage = { date: day, count: dailyUsageCount(orgData, day) + 1 };
         transaction.set(generationRef, {
           state: 'completed', publicationConsumed: input.commercial, completedAt: now, updatedAt: now,
           totalInputTokens: usage.inputTokens || 0, totalOutputTokens: usage.outputTokens || 0, totalThinkingTokens: usage.thinkingTokens || 0,
@@ -222,7 +228,10 @@ function createTracker(
           remainingPublications,
         }, { merge: true });
         if (input.commercial) {
-          transaction.set(orgRef, { publicationUsed: newUsed, activeGenerationReservations: Math.max(0, activeReservations - 1), updatedAt: now }, { merge: true });
+          transaction.set(orgRef, {
+            publicationUsed: newUsed, dailyUsage, lastGenerationAt: now,
+            activeGenerationReservations: Math.max(0, activeReservations - 1), updatedAt: now,
+          }, { merge: true });
         }
         await input.testHooks?.beforeAggregate?.();
         updateMonthlyAggregate(transaction, orgAggregateRef, orgAggregate.data(), input, result, now);

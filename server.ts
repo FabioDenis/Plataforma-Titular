@@ -64,6 +64,11 @@ import {
   MembershipError,
   removeOrganizationMember,
 } from './server/organization-members';
+import { OrganizationAccessError } from './server/organization-lifecycle';
+import { getOrganizationUsageHistory, listManagedOrganizations, setOrganizationLifecycle } from './server/organization-admin';
+import { isPublicHttpUrl, safeFetch, SafeFetch, SafeFetchError } from './server/safe-fetch';
+import { createRateLimiter } from './server/rate-limit';
+import { resolveImageContentType } from './server/image-type';
 
 // Safe resolution for __dirname in both CJS bundle and ESM environments
 const getCurrentDir = (): string => {
@@ -91,39 +96,6 @@ process.on('uncaughtException', (err) => {
   console.error('Uncaught Exception thrown:', err);
 });
 
-// Helper for SSRF URL safety
-function isUrlSafe(urlString: string): boolean {
-  try {
-    const parsed = new URL(urlString);
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      return false;
-    }
-    const hostname = parsed.hostname.toLowerCase();
-    if (
-      hostname === 'localhost' ||
-      hostname === '127.0.0.1' ||
-      hostname === '0.0.0.0' ||
-      hostname === '::1' ||
-      hostname.startsWith('10.') ||
-      hostname.startsWith('192.168.') ||
-      hostname.startsWith('172.16.') ||
-      hostname.startsWith('172.17.') ||
-      hostname.startsWith('172.18.') ||
-      hostname.startsWith('172.19.') ||
-      hostname.startsWith('172.20.') ||
-      hostname.startsWith('172.30.') ||
-      hostname.startsWith('172.31.') ||
-      hostname.endsWith('.local') ||
-      hostname.endsWith('.internal')
-    ) {
-      return false;
-    }
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 // Messages eligible to be returned to clients: only curated, static user-facing strings authored
 // in server/services/meta. MetaServiceError instances tagged with the UNKNOWN category carry
 // dynamic text derived from raw Meta Graph API responses, so they fall back to a generic message.
@@ -135,6 +107,9 @@ function getClientSafeErrorMessage(err: any, genericMessage: string): string {
 }
 
 // Escapes dynamic values interpolated into HTML text contexts to prevent XSS.
+const EXTRACT_MAX_BYTES = 10 * 1024 * 1024;
+const PROXY_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, '&amp;')
@@ -155,7 +130,7 @@ export interface ServerTestDependencies {
   verifyAuth?: typeof verifyFirebaseAuth;
   authenticateRequest?: typeof authenticateFirebaseRequest;
   bootstrapAccount?: typeof bootstrapAccount;
-  fetch?: typeof fetch;
+  fetch?: SafeFetch;
   hooks?: {
     postReservationPreGemini?: () => Promise<void> | void;
     postGeminiPreFinalization?: () => Promise<void> | void;
@@ -175,7 +150,20 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
   const authenticateRequest = dependencies.authenticateRequest || authenticateFirebaseRequest;
   const runBootstrapAccount = dependencies.bootstrapAccount || bootstrapAccount;
   const runGemini = dependencies.generateGeminiContent || generateGeminiContent;
-  const fetcher = dependencies.fetch || fetch;
+  const fetcher = dependencies.fetch || safeFetch;
+
+  // Per-user limits for the endpoints that make the server fetch a caller-supplied URL.
+  const rateLimitPerUser = (envName: string, defaultPerMinute: number) => {
+    const consume = createRateLimiter({ windowMs: 60_000, max: getOptionalNumberEnv(envName, defaultPerMinute) });
+    return (req: AuthenticatedRequest, res: express.Response, next: express.NextFunction) => {
+      const decision = consume(req.user?.uid || req.ip || 'unknown');
+      if (decision.allowed) return next();
+      res.setHeader('Retry-After', String(decision.retryAfterSeconds));
+      return res.status(429).json({ code: 'RATE_LIMITED', error: 'Demasiadas solicitudes. Intente nuevamente en unos instantes.' });
+    };
+  };
+  const extractRateLimit = rateLimitPerUser('EXTRACT_RATE_LIMIT_PER_MINUTE', 30);
+  const proxyImageRateLimit = rateLimitPerUser('PROXY_IMAGE_RATE_LIMIT_PER_MINUTE', 120);
   app.use(express.json({ limit: '30mb' }));
 
   // Cloud Run container health probe (no auth, no external service calls)
@@ -228,12 +216,19 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
       }
     }
 
+    const organizationAccessMessages: Record<OrganizationAccessError['code'], string> = {
+      NO_ORGANIZATION: 'Tu cuenta no está asociada a ningún medio. Pedile acceso al equipo de Titular.',
+      ORGANIZATION_NOT_ACTIVE: 'Tu medio todavía está en preparación. El equipo de Titular te va a avisar cuando esté listo.',
+      ORGANIZATION_SUSPENDED: 'El acceso de tu medio está suspendido. Contactá al equipo de Titular.',
+      DAILY_LIMIT_REACHED: 'Tu medio alcanzó el máximo de publicaciones de hoy. Vas a poder seguir mañana.',
+    };
+
     function sendAiError(res: any, error: any, fallbackMessage: string) {
       if (error instanceof GenerationStateError) {
         return res.status(409).json({ code: error.code, generationId: error.generationId, error: 'La operación ya fue recibida.' });
       }
-      if (error?.code === 'INSUFFICIENT_CREDITS' || error?.statusCode === 402) {
-        return res.status(402).json({ code: 'INSUFFICIENT_CREDITS', error: 'Has alcanzado el límite de publicaciones de tu plan.' });
+      if (error instanceof OrganizationAccessError) {
+        return res.status(error.statusCode).json({ code: error.code, error: organizationAccessMessages[error.code] });
       }
       if (error instanceof GeminiError) {
         if (error.reason === 'AUTH_OR_CONFIGURATION_ERROR') {
@@ -333,7 +328,7 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
     });
 
     // API Route: Secure Image Proxy to bypass CORS on export
-    app.get('/api/proxy-image', async (req, res) => {
+    app.get('/api/proxy-image', verifyAuth as any, proxyImageRateLimit as any, async (req: AuthenticatedRequest, res) => {
       try {
         const rawUrl = req.query.url as string;
         if (!rawUrl || typeof rawUrl !== 'string') {
@@ -351,8 +346,8 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
           return res.status(400).json({ error: 'Solo protocolos HTTP y HTTPS están soportados.' });
         }
 
-        // SSRF guard: reject targets pointing at private/internal network hosts.
-        if (!isUrlSafe(rawUrl)) {
+        // SSRF guard: reject internal targets early; the fetch layer validates the resolved address.
+        if (!isPublicHttpUrl(rawUrl)) {
           return res.status(400).json({ error: 'La URL solicitada no está permitida.' });
         }
 
@@ -362,22 +357,32 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
               'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
             Accept: 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
           },
-          signal: AbortSignal.timeout(12000),
+          timeoutMs: 12000,
+          maxBytes: PROXY_IMAGE_MAX_BYTES,
         });
 
         if (!response.ok) {
           return res.status(response.status).json({ error: `Servidor remoto retornó status ${response.status}` });
         }
 
-        const contentType = response.headers.get('content-type') || 'image/jpeg';
-        const buffer = await response.arrayBuffer();
+        const buffer = Buffer.from(await response.arrayBuffer());
+        const contentType = resolveImageContentType(response.headers.get('content-type') || '', buffer);
+        if (!contentType) {
+          return res.status(415).json({ error: 'El recurso remoto no es una imagen.' });
+        }
 
-        res.setHeader('Access-Control-Allow-Origin', '*');
-        res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
         res.setHeader('Content-Type', contentType);
-        res.setHeader('Cache-Control', 'public, max-age=86400');
-        return res.send(Buffer.from(buffer));
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        // Defense in depth for SVG: opened directly, the image cannot run scripts on this origin.
+        res.setHeader('Content-Security-Policy', 'sandbox');
+        res.setHeader('Cache-Control', 'private, max-age=86400');
+        return res.send(buffer);
       } catch (err: any) {
+        if (err instanceof SafeFetchError) {
+          if (err.code === 'UNSAFE_URL') return res.status(400).json({ error: 'La URL solicitada no está permitida.' });
+          if (err.code === 'RESPONSE_TOO_LARGE') return res.status(413).json({ error: 'La imagen remota supera el tamaño máximo permitido.' });
+          if (err.code === 'TIMEOUT') return res.status(504).json({ error: 'El servidor remoto no respondió a tiempo.' });
+        }
         console.error('Error en /api/proxy-image:', err?.message || err);
         return res.status(500).json({ error: 'Error al obtener la imagen remota.' });
       }
@@ -494,6 +499,9 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
     const membershipErrorResponses: Record<string, [number, string]> = {
       INVALID_EMAIL: [400, 'Ingresá un email válido.'],
       INVALID_NAME: [400, 'Ingresá el nombre del medio (hasta 120 caracteres).'],
+      INVALID_STATUS: [400, 'Estado inválido. Usá: en preparación, activo o suspendido.'],
+      ACCOUNT_CREATION_UNAVAILABLE: [503, 'No se pudo crear la cuenta. Revisá que el servidor tenga el permiso roles/firebaseauth.admin (checklist B7) e intentá de nuevo.'],
+      MEMBERSHIP_UNAVAILABLE: [503, 'No se pudo sumar la cuenta al medio. Intentá de nuevo; si persiste, revisá los logs del servidor.'],
       ORGANIZATION_NOT_FOUND: [404, 'El medio no existe.'],
       ALREADY_OWNER: [409, 'Esa cuenta ya es la dueña de este medio.'],
       OWNER_CANNOT_BE_REMOVED: [409, 'No se puede quitar a la cuenta dueña del medio.'],
@@ -523,6 +531,36 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
         return res.json({ organizationId });
       } catch (err) {
         return sendMembershipError(res, err, 'Error al crear el medio.');
+      }
+    });
+
+    // API Routes: newsroom list with consumption, monthly usage and lifecycle (platform admins only)
+    app.get('/api/admin/organizations', verifyFirebaseAuth as any, async (req: AuthenticatedRequest, res) => {
+      try {
+        if (!(await requirePlatformAdmin(req, res))) return;
+        const month = typeof req.query.month === 'string' && /^\d{4}-\d{2}$/.test(req.query.month) ? req.query.month : undefined;
+        return res.json({ organizations: await listManagedOrganizations(month) });
+      } catch (err) {
+        return sendMembershipError(res, err, 'Error al consultar los medios.');
+      }
+    });
+
+    app.get('/api/admin/organizations/:orgId/usage', verifyFirebaseAuth as any, async (req: AuthenticatedRequest, res) => {
+      try {
+        if (!(await requirePlatformAdmin(req, res))) return;
+        return res.json({ usage: await getOrganizationUsageHistory(req.params.orgId) });
+      } catch (err) {
+        return sendMembershipError(res, err, 'Error al consultar el consumo del medio.');
+      }
+    });
+
+    app.post('/api/admin/organizations/:orgId/status', verifyFirebaseAuth as any, async (req: AuthenticatedRequest, res) => {
+      try {
+        if (!(await requirePlatformAdmin(req, res))) return;
+        await setOrganizationLifecycle({ orgId: req.params.orgId, status: req.body?.status, adminUid: req.user!.uid });
+        return res.json({ success: true });
+      } catch (err) {
+        return sendMembershipError(res, err, 'Error al cambiar el estado del medio.');
       }
     });
 
@@ -1031,7 +1069,7 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
     // ARTICLE EXTRACTION (FREE, NO CREDITS REQUIRED)
     // ==========================================
 
-    app.post('/api/extract', async (req, res) => {
+    app.post('/api/extract', verifyAuth as any, extractRateLimit as any, async (req: AuthenticatedRequest, res) => {
       try {
         const { url, rawText, docTitle, importType } = req.body || {};
         const maxChars = getOptionalNumberEnv('MAX_ARTICLE_INPUT_CHARS', 60000);
@@ -1069,7 +1107,7 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
 
         const cleanUrl = url.trim();
 
-        if (!isUrlSafe(cleanUrl)) {
+        if (!isPublicHttpUrl(cleanUrl)) {
           return res.status(400).json({
             error: 'La URL proporcionada no es válida o apunta a una dirección IP privada / no permitida.',
           });
@@ -1241,7 +1279,8 @@ Instrucciones:
               'Sec-Fetch-Site': 'none',
               'Sec-Fetch-User': '?1',
             },
-            signal: AbortSignal.timeout(10000), // 10 sec timeout
+            timeoutMs: 10000,
+            maxBytes: EXTRACT_MAX_BYTES,
           });
 
           console.log('[DIAGNOSTIC] [POST /api/extract] HTTP fetch completed. Status:', fetchRes.status, fetchRes.statusText, 'Content-Type:', fetchRes.headers.get('content-type'));
@@ -1260,6 +1299,13 @@ Instrucciones:
             errorMessage: fetchErr.message,
             errorCode: fetchErr.code,
           });
+
+          // A destination blocked by the SSRF guard is a client error, not a reason to try the AI fallback.
+          if (fetchErr instanceof SafeFetchError && fetchErr.code === 'UNSAFE_URL') {
+            return res.status(400).json({
+              error: 'La URL proporcionada no es válida o apunta a una dirección IP privada / no permitida.',
+            });
+          }
 
           // Attempt Gemini Fallback on fetch error
           console.log('[EXTRACT] Direct fetch failed. Attempting Gemini fallback...');
@@ -1839,7 +1885,6 @@ ${article.content}
 
         return res.json({
           ...generation.result,
-          creditsRemaining: generation.remainingPublications,
           generationId: generation.generationId,
           idempotencyKeyGenerated: generation.generatedIdempotencyKey,
         });

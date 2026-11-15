@@ -5,6 +5,7 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   sendEmailVerification,
+  sendPasswordResetEmail,
   signOut as firebaseSignOut,
 } from 'firebase/auth';
 import { getClientAuth, getFirebaseApp } from '../lib/firebase';
@@ -53,6 +54,8 @@ interface AuthContextType {
   resendVerificationEmail: () => Promise<void>;
   /** Reloads the account after the user clicked the email link; joins any pending newsroom invite. */
   confirmEmailVerified: () => Promise<boolean>;
+  /** Emails the set/reset-password link (invited accounts use it to create their password). */
+  sendPasswordSetupEmail: (email: string) => Promise<void>;
   authFetch: (url: string, options?: RequestInit) => Promise<Response>;
   getToken: () => Promise<string | null>;
 }
@@ -70,8 +73,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const registrationInProgressRef = useRef(false);
   const syncedUidRef = useRef<string | null>(null);
   const syncInFlightRef = useRef<{ uid: string; promise: Promise<void> } | null>(null);
-  const billingProfileRef = useRef<BillingProfileState | null>(null);
-  billingProfileRef.current = billingProfile;
   const [emailVerified, setEmailVerified] = useState(false);
 
   // Idempotent server sync on every sign-in: repairs the account and joins pending newsroom invites.
@@ -238,6 +239,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return current.emailVerified;
   };
 
+  const sendPasswordSetupEmail = async (email: string) => {
+    await sendPasswordResetEmail(getClientAuth(), email.trim(), { url: window.location.origin });
+  };
+
   const logout = async () => {
     const auth = getClientAuth();
     await firebaseSignOut(auth);
@@ -263,12 +268,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       const res = await fetch(url, { ...options, headers });
-
-      // Clients pay a flat fee: only platform admins are sent to billing when a balance runs out.
-      if (res.status === 402 && billingProfileRef.current?.isAdmin) {
-        await refreshBillingProfile();
-        setIsBillingOpen(true);
-      }
 
       return res;
     },
@@ -297,6 +296,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         emailVerified,
         resendVerificationEmail,
         confirmEmailVerified,
+        sendPasswordSetupEmail,
         authFetch,
         getToken,
       }}

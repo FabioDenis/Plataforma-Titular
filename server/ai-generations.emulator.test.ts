@@ -209,28 +209,36 @@ test('nine concurrent completed replays return the persisted output without prov
   assert.equal(generation.publicationConsumed, true);
 });
 
-test('a second key cannot reserve past a publication limit of one', async () => {
-  const identity = nextIdentity(1);
+test('a second key cannot reserve past the newsroom daily safety cap', async () => {
+  const identity = nextIdentity();
   await seed(identity);
+  await getAdminDb().doc(`organizations/${identity.orgId}`).set({ dailyGenerationCap: 1 }, { merge: true });
   let release!: () => void;
   const gate = new Promise<void>((resolve) => { release = resolve; });
+  let reserved!: () => void;
+  const firstReserved = new Promise<void>((resolve) => { reserved = resolve; });
   let calls = 0;
   const generateGeminiContent: any = async (_request: unknown, dependencies: any) => {
     calls += 1;
+    reserved();
     await dependencies.onAttempt(successfulAttempt());
     await gate;
     return successfulResult();
   };
   await withApp({ generateGeminiContent }, async (baseUrl) => {
     const first = request(baseUrl, '/api/generate-posts', identity, { key: 'limit-first-0001' });
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    // Deterministic: wait until the first request holds its reservation.
+    await firstReserved;
     const second = await request(baseUrl, '/api/generate-posts', identity, { key: 'limit-second-001' });
-    assert.equal(second.status, 402);
+    assert.equal(second.status, 429);
+    assert.equal(((await second.json()) as any).code, 'DAILY_LIMIT_REACHED');
     release();
     assert.equal((await first).status, 200);
   });
   assert.equal(calls, 1);
-  assert.equal((await getAdminDb().doc(`organizations/${identity.orgId}`).get()).data()!.publicationUsed, 1);
+  const org = (await getAdminDb().doc(`organizations/${identity.orgId}`).get()).data()!;
+  assert.equal(org.publicationUsed, 1);
+  assert.equal(org.dailyUsage.count, 1);
 });
 
 test('provider request and auth failures are terminal, release reservations, and do not consume publications', async () => {
@@ -321,7 +329,7 @@ test('test-only stage hooks prove the pre-finalization and post-finalization cra
   assert.equal((await getAdminDb().doc(`organizations/${identity.orgId}`).get()).data()!.publicationUsed, 1);
 });
 
-test('public HTML extraction stays public while AI fallback requires auth and is tracked without publication consumption', async () => {
+test('extraction requires auth and its AI fallback is tracked without publication consumption', async () => {
   const identity = nextIdentity();
   await seed(identity);
   let calls = 0;
@@ -332,8 +340,11 @@ test('public HTML extraction stays public while AI fallback requires auth and is
   };
   const failingFetch: any = async () => { throw new Error('blocked'); };
   await withApp({ generateGeminiContent, fetch: failingFetch }, async (baseUrl) => {
-    const publicResult = await request(baseUrl, '/api/extract', identity, { bearer: false, body: { url: 'https://tumedio.com/2026/07/22/nuevo-programa-inteligencia-artificial-para-pymes/' } });
-    assert.equal(publicResult.status, 200);
+    const sampleUrl = 'https://tumedio.com/2026/07/22/nuevo-programa-inteligencia-artificial-para-pymes/';
+    const unauthenticatedSample = await request(baseUrl, '/api/extract', identity, { bearer: false, body: { url: sampleUrl } });
+    assert.equal(unauthenticatedSample.status, 401);
+    const sample = await request(baseUrl, '/api/extract', identity, { body: { url: sampleUrl } });
+    assert.equal(sample.status, 200);
     const unauthenticatedFallback = await request(baseUrl, '/api/extract', identity, { bearer: false, body: { url: 'https://example.com/blocked-news' } });
     assert.equal(unauthenticatedFallback.status, 401);
     const fallback = await request(baseUrl, '/api/extract', identity, { body: { url: 'https://example.com/blocked-news' } });
@@ -383,4 +394,57 @@ test('organization access is limited to owners, members and platform admins', as
   assert.equal(await canAccessOrganization(platformAdmin.uid, undefined, owner.orgId), true);
   assert.equal(await canAccessOrganization(outsider.uid, undefined, `${owner.orgId}/publications/x`), false);
   assert.equal(await canAccessOrganization(outsider.uid, undefined, 'missing-org'), false);
+});
+
+// --- Flat fee: single AI balance, newsroom lifecycle ---
+
+test('generation is never blocked by a per-newsroom credit limit', async () => {
+  const identity = nextIdentity(1);
+  await seed(identity);
+  await getAdminDb().doc(`organizations/${identity.orgId}`).set({ publicationUsed: 5 }, { merge: true });
+  await withApp({ generateGeminiContent: async () => successfulResult() }, async (baseUrl) => {
+    const response = await request(baseUrl, '/api/generate-posts', identity, { key: 'flat-fee-0001' });
+    assert.equal(response.status, 200);
+    const body: any = await response.json();
+    assert.equal('creditsRemaining' in body, false);
+  });
+  assert.equal((await getAdminDb().doc(`organizations/${identity.orgId}`).get()).data()!.publicationUsed, 6);
+});
+
+test('newsrooms in preparation or suspended cannot generate and the provider is never called', async () => {
+  for (const [status, code] of [['draft', 'ORGANIZATION_NOT_ACTIVE'], ['suspended', 'ORGANIZATION_SUSPENDED']]) {
+    const identity = nextIdentity();
+    await seed(identity);
+    await getAdminDb().doc(`organizations/${identity.orgId}`).set({ status }, { merge: true });
+    let calls = 0;
+    await withApp({ generateGeminiContent: async () => { calls += 1; return successfulResult(); } }, async (baseUrl) => {
+      for (const path of ['/api/generate-posts', '/api/analyze-identity-editorial']) {
+        const response = await request(baseUrl, path, identity, { key: `${status}-${path.length}-0001` });
+        assert.equal(response.status, 403, `${status} ${path}`);
+        assert.equal(((await response.json()) as any).code, code);
+      }
+    });
+    assert.equal(calls, 0);
+  }
+});
+
+test('an account without a newsroom cannot use the AI', async () => {
+  const identity = nextIdentity();
+  let calls = 0;
+  await withApp({ generateGeminiContent: async () => { calls += 1; return successfulResult(); } }, async (baseUrl) => {
+    const response = await request(baseUrl, '/api/generate-posts', identity, { key: 'no-newsroom-0001' });
+    assert.equal(response.status, 403);
+    assert.equal(((await response.json()) as any).code, 'NO_ORGANIZATION');
+  });
+  assert.equal(calls, 0);
+  assert.equal((await getAdminDb().doc(`organizations/${identity.orgId}`).get()).exists, false);
+});
+
+test('legacy newsrooms marked Activa keep generating', async () => {
+  const identity = nextIdentity();
+  await seed(identity);
+  await getAdminDb().doc(`organizations/${identity.orgId}`).set({ status: 'Activa' }, { merge: true });
+  await withApp({ generateGeminiContent: async () => successfulResult() }, async (baseUrl) => {
+    assert.equal((await request(baseUrl, '/api/generate-posts', identity, { key: 'legacy-0001' })).status, 200);
+  });
 });

@@ -1,6 +1,5 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { getAdminAuth, getAdminDb } from './firebase-admin';
-import { DEFAULT_TRIAL_PUBLICATION_LIMIT } from './billing';
 
 /**
  * Organization membership (team accounts).
@@ -14,6 +13,9 @@ import { DEFAULT_TRIAL_PUBLICATION_LIMIT } from './billing';
 export type MembershipErrorCode =
   | 'INVALID_EMAIL'
   | 'INVALID_NAME'
+  | 'INVALID_STATUS'
+  | 'ACCOUNT_CREATION_UNAVAILABLE'
+  | 'MEMBERSHIP_UNAVAILABLE'
   | 'ORGANIZATION_NOT_FOUND'
   | 'ALREADY_OWNER'
   | 'OWNER_CANNOT_BE_REMOVED'
@@ -32,6 +34,21 @@ export interface AccountLookup {
 }
 
 export type FindAccountByEmail = (email: string) => Promise<AccountLookup | null>;
+export type CreateAccount = (email: string) => Promise<AccountLookup>;
+export type DeleteAccount = (uid: string) => Promise<void>;
+
+/**
+ * Invitation-only access: creates the Auth account without a password. Only whoever controls the
+ * mailbox can set one (through the emailed password link), so the address is treated as verified.
+ */
+export const createAuthAccount: CreateAccount = async (email) => {
+  const record = await getAdminAuth().createUser({ email, emailVerified: true });
+  return { uid: record.uid, email: (record.email || email).toLowerCase(), emailVerified: true };
+};
+
+export const deleteAuthAccount: DeleteAccount = async (uid) => {
+  await getAdminAuth().deleteUser(uid);
+};
 
 export const findAccountByEmail: FindAccountByEmail = async (email) => {
   try {
@@ -57,7 +74,7 @@ function membersOf(data: FirebaseFirestore.DocumentData | undefined): string[] {
   return Array.isArray(data?.members) ? data!.members.filter((m: unknown) => typeof m === 'string') : [];
 }
 
-async function requireOrganization(orgId: unknown) {
+export async function requireOrganization(orgId: unknown) {
   if (typeof orgId !== 'string' || !orgId.trim() || orgId.includes('/')) {
     throw new MembershipError('ORGANIZATION_NOT_FOUND');
   }
@@ -94,11 +111,47 @@ async function attachMember(account: AccountLookup, orgId: string): Promise<void
 
 export async function addOrganizationMember(
   input: { orgId: string; email: unknown; invitedByUid: string; invitedByEmail?: string },
-  findAccount: FindAccountByEmail = findAccountByEmail
-): Promise<{ status: 'active'; email: string; uid: string } | { status: 'pending'; email: string }> {
+  findAccount: FindAccountByEmail = findAccountByEmail,
+  createAccount: CreateAccount | null = createAuthAccount,
+  deleteAccount: DeleteAccount = deleteAuthAccount
+): Promise<
+  | { status: 'active'; email: string; uid: string }
+  | { status: 'created'; email: string; uid: string }
+  | { status: 'pending'; email: string }
+> {
   const email = normalizeEmail(input.email);
   const org = await requireOrganization(input.orgId);
-  const account = await findAccount(email);
+  let account = await findAccount(email);
+
+  // New person: create the account now; the admin's browser then emails the set-password link.
+  if (!account && createAccount) {
+    let createdAccount: AccountLookup | null = null;
+    try {
+      createdAccount = await createAccount(email);
+    } catch (error: any) {
+      // Registered between the lookup and createUser: continue as an existing account.
+      if (error?.code !== 'auth/email-already-exists') {
+        console.error('[addOrganizationMember] Could not create the account:', error?.code || error?.message);
+        throw new MembershipError('ACCOUNT_CREATION_UNAVAILABLE');
+      }
+      account = await findAccount(email);
+    }
+
+    if (createdAccount) {
+      try {
+        await attachMember({ ...createdAccount, email }, input.orgId);
+        return { status: 'created', email, uid: createdAccount.uid };
+      } catch (error: any) {
+        // The account exists only for this invite and was never used: remove it so a retry starts clean.
+        await deleteAccount(createdAccount.uid).catch((deleteError: any) => {
+          console.error('[addOrganizationMember] Could not remove the unused account', createdAccount!.uid, deleteError?.code || deleteError?.message);
+        });
+        if (error instanceof MembershipError) throw error;
+        console.error('[addOrganizationMember] Could not link the new account:', error?.code || error?.message);
+        throw new MembershipError('MEMBERSHIP_UNAVAILABLE');
+      }
+    }
+  }
 
   if (account && org.data()?.ownerUid === account.uid) throw new MembershipError('ALREADY_OWNER');
 
@@ -106,6 +159,9 @@ export async function addOrganizationMember(
     await attachMember({ ...account, email }, input.orgId);
     return { status: 'active', email, uid: account.uid };
   }
+
+  // Pending invite: an existing but unverified account must prove the address first (prevents
+  // squatting an email), or no account exists and account creation is disabled.
 
   await getAdminDb().doc(`invites/${email}`).set({
     email,
@@ -225,10 +281,9 @@ export async function createManagedOrganization(input: { name: unknown; adminUid
     name,
     ownerUid: '',
     members: [],
-    plan: 'trial',
-    publicationLimit: DEFAULT_TRIAL_PUBLICATION_LIMIT,
     publicationUsed: 0,
-    status: 'Activa',
+    // In preparation until the admin activates it; the team cannot generate before that.
+    status: 'draft',
     orgType: 'Medio Digital',
     createdAt: new Date().toISOString(),
     createdByAdminUid: input.adminUid,

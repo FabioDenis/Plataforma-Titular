@@ -74,16 +74,13 @@ no local Docker required:
 PROJECT_ID=titular-53a66
 REGION=southamerica-east1
 
-gcloud run deploy titular-api \
-  --project "$PROJECT_ID" \
-  --source . \
-  --region "$REGION" \
-  --service-account "titular-api@$PROJECT_ID.iam.gserviceaccount.com" \
-  --allow-unauthenticated \
-  --max-instances 1 \
-  --set-env-vars "NODE_ENV=production,APP_URL=https://titular.com.ar,FIRESTORE_DATABASE_ID=(default),MERCADOPAGO_REQUIRE_SIGNATURE=true" \
-  --set-secrets "GEMINI_API_KEY=GEMINI_API_KEY:latest,MERCADOPAGO_ACCESS_TOKEN=MERCADOPAGO_ACCESS_TOKEN:latest,MERCADOPAGO_WEBHOOK_SECRET=MERCADOPAGO_WEBHOOK_SECRET:latest,META_APP_SECRET=META_APP_SECRET:latest,META_TOKEN_ENCRYPTION_KEY=META_TOKEN_ENCRYPTION_KEY:latest"
+# Routine deploy: keeps the current env vars, secrets and service account.
+gcloud run deploy titular-api --project "$PROJECT_ID" --region "$REGION" --source . --quiet
 ```
+
+Warning: never add `--set-env-vars` / `--set-secrets` to a routine deploy. They **replace** the
+whole list, which drops `ADMIN_EMAILS` and `TRIAL_PUBLICATIONS` and requires secrets that do not exist.
+Change one variable with `gcloud run services update titular-api --update-env-vars KEY=VALUE`.
 
 Boot note: `server/config/env.ts` validates startup secrets and exits(1) if
 `GEMINI_API_KEY` (and other required vars) are missing — secrets must exist
@@ -151,6 +148,7 @@ and Firebase Auth.
 | `APP_URL` | `https://titular.com.ar` — drives Meta redirect URI + MP `notification_url` |
 | `FIRESTORE_DATABASE_ID` | `(default)` |
 | `TRIAL_PUBLICATIONS`, `MAX_ARTICLE_INPUT_CHARS` | limits |
+| `EXTRACT_RATE_LIMIT_PER_MINUTE`, `PROXY_IMAGE_RATE_LIMIT_PER_MINUTE` | per-user request limits (defaults `30` and `120`); in-memory, valid only with `--max-instances 1` |
 | `PLAN_*_PUBLICATIONS`, `PLAN_*_PRICE_ARS`, `PACK_*_PRICE_ARS` | billing catalog |
 | `GEMINI_PRIMARY_MODEL`, `GEMINI_FALLBACK_MODELS`, `GEMINI_*_TIMEOUT_MS`, `GEMINI_RETRY_*` | tuning; sane defaults exist |
 | `META_GRAPH_VERSION` | default `v22.0` |
@@ -257,8 +255,13 @@ URLs to configure **after** the domain is live (do not change now):
 | `POST /api/webhooks/mercadopago` | HMAC signature when `MERCADOPAGO_REQUIRE_SIGNATURE=true` | Set MP `notification_url` = `https://titular.com.ar/api/webhooks/mercadopago`; keep signature flag `true` in production |
 | `GET /api/meta/oauth/callback` | HMAC-signed OAuth `state` (20 min TTL, `META_APP_SECRET`) | Add `https://titular.com.ar/api/meta/oauth/callback` to Meta Valid OAuth Redirect URIs (`META_REDIRECT_URI`) |
 | `GET /api/media/render/:id` | unguessable 128-bit IDs | none (by design, for Meta crawlers) |
-| `GET /api/proxy-image` | `isUrlSafe()` SSRF guard + protocol check + 12s timeout | none |
-| `POST /api/extract` | `isUrlSafe()` SSRF guard on scraped URLs | none |
+
+Endpoints that fetch a caller-supplied URL are **not public**: both require a Firebase ID token and are rate limited per user.
+
+| Endpoint | Protection |
+|---|---|
+| `GET /api/proxy-image` | Firebase ID token + per-user rate limit + `safeFetch` (resolved-IP SSRF guard, validated redirects, 12s timeout, 10 MB cap) + images only: `image/*`, or a missing/`application/octet-stream` type whose bytes are JPEG, PNG, GIF, WebP or AVIF; served with `nosniff` and `Content-Security-Policy: sandbox` |
+| `POST /api/extract` | Firebase ID token + per-user rate limit + `safeFetch` (resolved-IP SSRF guard, validated redirects, 10s timeout, 10 MB cap) |
 
 ## 9.1 Security review (Phases 14-15)
 
@@ -279,7 +282,7 @@ dedicated hardening change (all verified: lint, build, 15/15 unit tests):
 | Medium | `meta/publish` + `/publish/retry` trusted client `orgId` | ✅ Fixed: `checkUserAdminPermission` before any side effect, same 403 shape as sibling routes |
 | Medium | Raw `err.message` returned to clients | ✅ Fixed: `getClientSafeErrorMessage()` — curated `userMessage` only for categorized `MetaServiceError`s, generic Spanish messages otherwise; `technicalDetails` removed from responses; server-side logging preserved |
 | Medium | HMAC compares not timing-safe; MP signature optional | ✅ Fixed: length-guarded `crypto.timingSafeEqual` in MP + Meta state; production boot warns (log-only) when `MERCADOPAGO_REQUIRE_SIGNATURE !== 'true'` |
-| Low | `/api/extract` open, no rate limit | ⏳ Pending product decision (rate limiting is new functionality, out of scope) |
+| Low | `/api/extract` open, no rate limit | ✅ Fixed later: `/api/extract` and `/api/proxy-image` require a Firebase ID token and are rate limited per user; the string-based `isUrlSafe()` guard was replaced by `server/safe-fetch.ts` |
 
 Note: billing errors that previously surfaced plain `Error` messages from
 `server/mercadopago.ts` (e.g. "Ya tenés una suscripción activa...") now return

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Users, UserPlus, Trash2, Clock, Crown, AlertCircle } from 'lucide-react';
+import { Users, UserPlus, Trash2, Clock, Crown, AlertCircle, Send } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 
 interface MembersListing {
   owner: { uid: string; email: string } | null;
@@ -24,6 +25,7 @@ export const OrganizationMembersPanel: React.FC<OrganizationMembersPanelProps> =
   const [email, setEmail] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
+  const { sendPasswordSetupEmail } = useAuth();
 
   const base = `/api/admin/organizations/${encodeURIComponent(orgId)}/members`;
 
@@ -44,14 +46,14 @@ export const OrganizationMembersPanel: React.FC<OrganizationMembersPanelProps> =
     load();
   }, [load]);
 
-  const submit = async (path: string, body: object, success: (data: any) => string) => {
+  const submit = async (path: string, body: object, success: (data: any) => string | Promise<string>) => {
     setBusy(true);
     setMessage(null);
     try {
       const res = await authFetch(path, { method: 'POST', body: JSON.stringify(body) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'No se pudo completar la acción.');
-      setMessage({ kind: 'ok', text: success(data) });
+      setMessage({ kind: 'ok', text: await success(data) });
       await load();
       onChanged?.();
       return true;
@@ -67,12 +69,33 @@ export const OrganizationMembersPanel: React.FC<OrganizationMembersPanelProps> =
     e.preventDefault();
     const target = email.trim();
     if (!target) return;
-    const ok = await submit(base, { email: target }, (data) =>
-      data.status === 'active'
+    const ok = await submit(base, { email: target }, async (data) => {
+      if (data.status === 'created') {
+        try {
+          await sendPasswordSetupEmail(data.email);
+          return `Cuenta creada para ${data.email}. Le enviamos un email para crear su contraseña y entrar a ${orgName}.`;
+        } catch {
+          return `Cuenta creada para ${data.email}, pero no se pudo enviar el email. Usá "Reenviar acceso".`;
+        }
+      }
+      return data.status === 'active'
         ? `${data.email} ya forma parte de ${orgName}.`
-        : `Invitación pendiente para ${data.email}: se une a ${orgName} cuando ingrese con su email confirmado.`
-    );
+        : `Invitación pendiente para ${data.email}: se une a ${orgName} cuando confirme su email.`;
+    });
     if (ok) setEmail('');
+  };
+
+  const handleResendAccess = async (target: string) => {
+    setBusy(true);
+    setMessage(null);
+    try {
+      await sendPasswordSetupEmail(target);
+      setMessage({ kind: 'ok', text: `Le reenviamos a ${target} el enlace para crear o recuperar su contraseña.` });
+    } catch {
+      setMessage({ kind: 'error', text: `No se pudo enviar el email a ${target}. Intentá nuevamente en unos minutos.` });
+    } finally {
+      setBusy(false);
+    }
   };
 
   const handleRemove = (target: string) =>
@@ -138,6 +161,16 @@ export const OrganizationMembersPanel: React.FC<OrganizationMembersPanelProps> =
               <span className="min-w-0 break-all font-mono text-xs">{m.email || m.uid}</span>
               <span className="flex items-center gap-2">
                 <span className="rounded bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">Activa</span>
+                <button
+                  type="button"
+                  disabled={busy || !m.email}
+                  onClick={() => handleResendAccess(m.email)}
+                  aria-label={`Reenviar acceso a ${m.email}`}
+                  title="Reenviar el enlace para crear o recuperar la contraseña"
+                  className="rounded p-1 text-brand-navy/70 hover:bg-brand-navy/5 disabled:opacity-40"
+                >
+                  <Send className="h-4 w-4" />
+                </button>
                 <button
                   type="button"
                   disabled={busy || !m.email}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Header } from './components/Header';
 import { UrlForm } from './components/UrlForm';
 import { ExtractedArticleCard } from './components/ExtractedArticleCard';
@@ -10,8 +10,7 @@ import { BrandingModal } from './components/BrandingModal';
 import { IntegrationsModal } from './components/IntegrationsModal';
 import { IdentitySection } from './components/IdentitySection';
 import { AuthModal } from './components/AuthModal';
-import { BillingModal } from './components/BillingModal';
-import { AdminGenerationsModal } from './components/AdminGenerationsModal';
+import { AdminNewsroomsPanel } from './components/AdminNewsroomsPanel';
 import { EmailVerificationBanner } from './components/EmailVerificationBanner';
 import { AdminWorkspaceBanner } from './components/AdminWorkspaceBanner';
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -23,25 +22,17 @@ import {
   GeneratedNewsResult,
   SampleNewsItem,
   OrganizationIdentity,
-  DEFAULT_TRIAL_PUBLICATION_LIMIT,
 } from './types';
 import { DEFAULT_IDENTITY } from './data/sampleIdentities';
 import { useOrganizationWorkspace } from './hooks/useOrganizationWorkspace';
 import { Newspaper, CheckCircle2, Building2 } from 'lucide-react';
 
-// Clients pay a flat fee and never see balances; Titular keeps the organization topped up.
-const GENERATION_PAUSED_MESSAGE =
-  'La generación de contenidos de tu medio está pausada en este momento. Contactá al equipo de Titular para reactivarla.';
-
 function MainAppContent() {
   const {
     user,
     authFetch,
-    isBillingOpen,
-    setIsBillingOpen,
     isAuthModalOpen,
     setIsAuthModalOpen,
-    isAdmin,
   } = useAuth();
 
   const { organization } = useOrganization();
@@ -57,7 +48,6 @@ function MainAppContent() {
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStep, setLoadingStep] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [billingMessage, setBillingMessage] = useState<string | null>(null);
 
   // Modals / Drawers
   const [isBrandingOpen, setIsBrandingOpen] = useState(false);
@@ -77,39 +67,12 @@ function MainAppContent() {
     });
   };
 
-  // Detect query params for billing redirects (success/pending/failure)
-  useEffect(() => {
-    // Payment redirects only concern platform admins; clients never see balances or plans.
-    if (!isAdmin) return;
-    const params = new URLSearchParams(window.location.search);
-    const billingStatus = params.get('billing');
-    if (billingStatus === 'success') {
-      setBillingMessage('¡Pago acreditado con éxito! Tu saldo de publicaciones ha sido actualizado.');
-      setIsBillingOpen(true);
-      window.history.replaceState({}, document.title, window.location.pathname);
-    } else if (billingStatus === 'pending') {
-      setBillingMessage('Tu pago se encuentra en proceso de aprobación por Mercado Pago.');
-      setIsBillingOpen(true);
-      window.history.replaceState({}, document.title, window.location.pathname);
-    } else if (billingStatus === 'failure') {
-      setError('No se pudo completar el pago en Mercado Pago. Por favor intentá nuevamente.');
-      window.history.replaceState({}, document.title, window.location.pathname);
-    }
-  }, [setIsBillingOpen, isAdmin]);
-
   const handleProcessUrl = async (url: string) => {
     if (!user) {
       setIsAuthModalOpen(true);
       return;
     }
 
-    const pubLimit = organization?.publicationLimit ?? DEFAULT_TRIAL_PUBLICATION_LIMIT;
-    const pubUsed = organization?.publicationUsed ?? 0;
-    if (pubUsed >= pubLimit) {
-      if (isAdmin) setIsBillingOpen(true);
-      else setError(GENERATION_PAUSED_MESSAGE);
-      return;
-    }
 
     try {
       setIsLoading(true);
@@ -117,9 +80,8 @@ function MainAppContent() {
 
       // Step 1: Extract news article (Free)
       setLoadingStep(`1/2. Obteniendo noticia y extrayendo contenido con perfil de ${activeIdentity.name}...`);
-      const extractRes = await fetch('/api/extract', {
+      const extractRes = await authFetch('/api/extract', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url }),
       });
 
@@ -142,10 +104,6 @@ function MainAppContent() {
           identity: activeIdentity,
         }),
       });
-
-      if (genRes.status === 402 && !isAdmin) {
-        throw new Error(GENERATION_PAUSED_MESSAGE);
-      }
 
       if (!genRes.ok) {
         const errData = await genRes.json();
@@ -183,22 +141,14 @@ function MainAppContent() {
       return;
     }
 
-    const pubLimit = organization?.publicationLimit ?? DEFAULT_TRIAL_PUBLICATION_LIMIT;
-    const pubUsed = organization?.publicationUsed ?? 0;
-    if (pubUsed >= pubLimit) {
-      if (isAdmin) setIsBillingOpen(true);
-      else setError(GENERATION_PAUSED_MESSAGE);
-      return;
-    }
 
     try {
       setIsLoading(true);
       setError(null);
 
       setLoadingStep(`1/2. Procesando ${importType === 'document' ? 'documento' : importType === 'image' ? 'imagen/flyer' : 'comunicado'} con perfil de ${activeIdentity.name}...`);
-      const extractRes = await fetch('/api/extract', {
+      const extractRes = await authFetch('/api/extract', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ rawText: text, title, importType }),
       });
 
@@ -220,10 +170,6 @@ function MainAppContent() {
           identity: activeIdentity,
         }),
       });
-
-      if (genRes.status === 402 && !isAdmin) {
-        throw new Error(GENERATION_PAUSED_MESSAGE);
-      }
 
       if (!genRes.ok) {
         const errData = await genRes.json();
@@ -437,13 +383,7 @@ function MainAppContent() {
         onClose={() => setIsAuthModalOpen(false)}
       />
 
-      <BillingModal
-        isOpen={isBillingOpen}
-        onClose={() => setIsBillingOpen(false)}
-        billingMessage={billingMessage}
-      />
-
-      <AdminGenerationsModal
+      <AdminNewsroomsPanel
         isOpen={isAdminModalOpen}
         onClose={() => setIsAdminModalOpen(false)}
         onOpenOrganization={() => setActiveView('identity')}
