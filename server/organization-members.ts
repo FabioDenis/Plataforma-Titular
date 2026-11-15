@@ -15,6 +15,7 @@ export type MembershipErrorCode =
   | 'INVALID_NAME'
   | 'INVALID_STATUS'
   | 'ACCOUNT_CREATION_UNAVAILABLE'
+  | 'MEMBERSHIP_UNAVAILABLE'
   | 'ORGANIZATION_NOT_FOUND'
   | 'ALREADY_OWNER'
   | 'OWNER_CANNOT_BE_REMOVED'
@@ -34,6 +35,7 @@ export interface AccountLookup {
 
 export type FindAccountByEmail = (email: string) => Promise<AccountLookup | null>;
 export type CreateAccount = (email: string) => Promise<AccountLookup>;
+export type DeleteAccount = (uid: string) => Promise<void>;
 
 /**
  * Invitation-only access: creates the Auth account without a password. Only whoever controls the
@@ -42,6 +44,10 @@ export type CreateAccount = (email: string) => Promise<AccountLookup>;
 export const createAuthAccount: CreateAccount = async (email) => {
   const record = await getAdminAuth().createUser({ email, emailVerified: true });
   return { uid: record.uid, email: (record.email || email).toLowerCase(), emailVerified: true };
+};
+
+export const deleteAuthAccount: DeleteAccount = async (uid) => {
+  await getAdminAuth().deleteUser(uid);
 };
 
 export const findAccountByEmail: FindAccountByEmail = async (email) => {
@@ -106,7 +112,8 @@ async function attachMember(account: AccountLookup, orgId: string): Promise<void
 export async function addOrganizationMember(
   input: { orgId: string; email: unknown; invitedByUid: string; invitedByEmail?: string },
   findAccount: FindAccountByEmail = findAccountByEmail,
-  createAccount: CreateAccount | null = createAuthAccount
+  createAccount: CreateAccount | null = createAuthAccount,
+  deleteAccount: DeleteAccount = deleteAuthAccount
 ): Promise<
   | { status: 'active'; email: string; uid: string }
   | { status: 'created'; email: string; uid: string }
@@ -118,18 +125,31 @@ export async function addOrganizationMember(
 
   // New person: create the account now; the admin's browser then emails the set-password link.
   if (!account && createAccount) {
+    let createdAccount: AccountLookup | null = null;
     try {
-      const createdAccount = await createAccount(email);
-      await attachMember({ ...createdAccount, email }, input.orgId);
-      return { status: 'created', email, uid: createdAccount.uid };
+      createdAccount = await createAccount(email);
     } catch (error: any) {
-      if (error instanceof MembershipError) throw error;
       // Registered between the lookup and createUser: continue as an existing account.
       if (error?.code !== 'auth/email-already-exists') {
         console.error('[addOrganizationMember] Could not create the account:', error?.code || error?.message);
         throw new MembershipError('ACCOUNT_CREATION_UNAVAILABLE');
       }
       account = await findAccount(email);
+    }
+
+    if (createdAccount) {
+      try {
+        await attachMember({ ...createdAccount, email }, input.orgId);
+        return { status: 'created', email, uid: createdAccount.uid };
+      } catch (error: any) {
+        // The account exists only for this invite and was never used: remove it so a retry starts clean.
+        await deleteAccount(createdAccount.uid).catch((deleteError: any) => {
+          console.error('[addOrganizationMember] Could not remove the unused account', createdAccount!.uid, deleteError?.code || deleteError?.message);
+        });
+        if (error instanceof MembershipError) throw error;
+        console.error('[addOrganizationMember] Could not link the new account:', error?.code || error?.message);
+        throw new MembershipError('MEMBERSHIP_UNAVAILABLE');
+      }
     }
   }
 

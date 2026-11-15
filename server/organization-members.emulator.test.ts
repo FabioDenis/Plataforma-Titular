@@ -300,8 +300,61 @@ test('a failure creating the account is reported as account creation unavailable
   const denied = async () => {
     throw Object.assign(new Error('insufficient permission'), { code: 'auth/insufficient-permission' });
   };
+  const deleted: string[] = [];
   await assert.rejects(
-    addOrganizationMember({ orgId, email: `nobody-${Date.now()}@example.test`, invitedByUid: 'admin' }, directory(), denied),
+    addOrganizationMember(
+      { orgId, email: `nobody-${Date.now()}@example.test`, invitedByUid: 'admin' },
+      directory(),
+      denied,
+      async (uid) => { deleted.push(uid); }
+    ),
     isCode('ACCOUNT_CREATION_UNAVAILABLE')
+  );
+  assert.deepEqual(deleted, []);
+});
+
+test('a failure linking a newly created account removes it and is reported as membership unavailable', async () => {
+  const { orgId } = await newsroom();
+  const email = `broken-${Date.now()}@example.test`;
+  // A uid that is not a valid document id makes the linking step fail with a non-membership error.
+  const createBroken = async () => ({ uid: 'broken/uid', email, emailVerified: true });
+  const deleted: string[] = [];
+
+  await assert.rejects(
+    addOrganizationMember({ orgId, email, invitedByUid: 'admin' }, directory(), createBroken, async (uid) => { deleted.push(uid); }),
+    isCode('MEMBERSHIP_UNAVAILABLE')
+  );
+
+  assert.deepEqual(deleted, ['broken/uid']);
+  assert.equal((await getAdminDb().doc(`organizations/${orgId}`).get()).data()!.members, undefined);
+});
+
+test('a newly created account is removed when the newsroom disappears before linking', async () => {
+  const { orgId } = await newsroom();
+  const email = `orphan-${Date.now()}@example.test`;
+  const uid = `orphan-${Date.now()}`;
+  const createThenDeleteNewsroom = async () => {
+    await getAdminDb().doc(`organizations/${orgId}`).delete();
+    return { uid, email, emailVerified: true };
+  };
+  const deleted: string[] = [];
+
+  await assert.rejects(
+    addOrganizationMember({ orgId, email, invitedByUid: 'admin' }, directory(), createThenDeleteNewsroom, async (id) => { deleted.push(id); }),
+    isCode('ORGANIZATION_NOT_FOUND')
+  );
+
+  assert.deepEqual(deleted, [uid]);
+});
+
+test('a failed cleanup of the created account still reports the linking error', async () => {
+  const { orgId } = await newsroom();
+  const email = `cleanup-${Date.now()}@example.test`;
+  const createBroken = async () => ({ uid: 'cleanup/uid', email, emailVerified: true });
+  const failingDelete = async () => { throw new Error('auth unavailable'); };
+
+  await assert.rejects(
+    addOrganizationMember({ orgId, email, invitedByUid: 'admin' }, directory(), createBroken, failingDelete),
+    isCode('MEMBERSHIP_UNAVAILABLE')
   );
 });

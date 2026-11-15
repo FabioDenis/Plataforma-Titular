@@ -498,6 +498,7 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
       INVALID_NAME: [400, 'Ingresá el nombre del medio (hasta 120 caracteres).'],
       INVALID_STATUS: [400, 'Estado inválido. Usá: en preparación, activo o suspendido.'],
       ACCOUNT_CREATION_UNAVAILABLE: [503, 'No se pudo crear la cuenta. Revisá que el servidor tenga el permiso roles/firebaseauth.admin (checklist B7) e intentá de nuevo.'],
+      MEMBERSHIP_UNAVAILABLE: [503, 'No se pudo sumar la cuenta al medio. Intentá de nuevo; si persiste, revisá los logs del servidor.'],
       ORGANIZATION_NOT_FOUND: [404, 'El medio no existe.'],
       ALREADY_OWNER: [409, 'Esa cuenta ya es la dueña de este medio.'],
       OWNER_CANNOT_BE_REMOVED: [409, 'No se puede quitar a la cuenta dueña del medio.'],
