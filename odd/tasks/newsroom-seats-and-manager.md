@@ -14,8 +14,8 @@ Assumption (not asked): the manager role is stored as `organizations/{id}.manage
 
 ## Tasks
 
-- [ ] T1 · S1, S2, S3, S4 · inline · server: seat limit, manager, enforcement, admin and team endpoints
-- [ ] T2 · S1, S2 · inline · client: admin panel (limit, manager), team screen for the manager
+- [x] T1 · S1, S2, S3, S4 · inline · server: seat limit, manager, enforcement, admin and team endpoints · `545d563` (RED 24/24 failing, GREEN 24/24; emulator 97/97)
+- [x] T2 · S1, S2 · inline · client: admin panel (limit, manager), team screen for the manager · `33b6a04` (RED helper module missing, GREEN 3/3; lint and build OK; browser check pending)
 - [ ] T3 · all · delegated verifier · independent verification (risk item 2: permissions)
 
 ## Log
@@ -23,3 +23,4 @@ Assumption (not asked): the manager role is stored as `organizations/{id}.manage
 - L1 (2026-11-14) User: "me recomendas que al dar de alta un medio le dee la potestad a la cuenta del admin de ese medio a agregar y quitar los correos asociados al medio?" then "claro lo que pense es yo como admin del sistema puedo crear un medio y darle un numero de cuentas a asociar," then "si" to the defaults listed in S1-S2.
 - L2 Map: managed newsrooms have `ownerUid: ''`; every user gets `role: 'owner'`; all membership routes are platform-admin only; Firestore rules already keep `members` and any new limit field server-only.
 - L3 Route: inline, no writer trigger. High risk (item 2: permissions) → independent verifier at the end.
+- L4 One emulator run showed `concurrent bootstrap calls converge on one account and one free trial allocation` failing; two reruns passed 97/97 and the test does not touch the changed code. Treated as flaky, not fixed here.
