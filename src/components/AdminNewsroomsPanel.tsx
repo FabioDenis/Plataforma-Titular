@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   X,
   Search,
@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { OrganizationMembersPanel } from './OrganizationMembersPanel';
+import { describeTotalCost, summarizeNewsrooms } from '../utils/newsroomTotals';
 
 type NewsroomStatus = 'draft' | 'active' | 'suspended';
 
@@ -108,6 +109,11 @@ export const AdminNewsroomsPanel: React.FC<AdminNewsroomsPanelProps> = ({ isOpen
   const [newName, setNewName] = useState('');
   const [busy, setBusy] = useState(false);
   const [usage, setUsage] = useState<MonthlyUsage[] | null>(null);
+  const [usageFailed, setUsageFailed] = useState(false);
+  const [usageAttempt, setUsageAttempt] = useState(0);
+  // Only the latest list request may update the panel, so a slow answer for a month the admin
+  // already left never replaces the selected month.
+  const latestListRequest = useRef(0);
 
   const readJson = async (res: Response, fallback: string) => {
     const data = await res.json().catch(() => ({}));
@@ -116,6 +122,8 @@ export const AdminNewsroomsPanel: React.FC<AdminNewsroomsPanelProps> = ({ isOpen
   };
 
   const loadNewsrooms = useCallback(async () => {
+    const request = ++latestListRequest.current;
+    const isLatest = () => request === latestListRequest.current;
     try {
       setLoading(true);
       setError(null);
@@ -123,11 +131,11 @@ export const AdminNewsroomsPanel: React.FC<AdminNewsroomsPanelProps> = ({ isOpen
         await authFetch(`/api/admin/organizations?month=${encodeURIComponent(month)}`),
         'No se pudieron cargar los medios.'
       );
-      setNewsrooms(data.organizations || []);
+      if (isLatest()) setNewsrooms(data.organizations || []);
     } catch (err: any) {
-      setError(err.message);
+      if (isLatest()) setError(err.message);
     } finally {
-      setLoading(false);
+      if (isLatest()) setLoading(false);
     }
   }, [authFetch, month]);
 
@@ -139,16 +147,17 @@ export const AdminNewsroomsPanel: React.FC<AdminNewsroomsPanelProps> = ({ isOpen
 
   useEffect(() => {
     setUsage(null);
+    setUsageFailed(false);
     if (!isOpen || !selectedId) return;
     let cancelled = false;
     authFetch(`/api/admin/organizations/${encodeURIComponent(selectedId)}/usage`)
       .then((res) => readJson(res, 'No se pudo cargar el consumo.'))
       .then((data) => !cancelled && setUsage(data.usage || []))
-      .catch(() => !cancelled && setUsage([]));
+      .catch(() => !cancelled && setUsageFailed(true));
     return () => {
       cancelled = true;
     };
-  }, [authFetch, isOpen, selectedId]);
+  }, [authFetch, isOpen, selectedId, usageAttempt]);
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -156,18 +165,7 @@ export const AdminNewsroomsPanel: React.FC<AdminNewsroomsPanelProps> = ({ isOpen
     return newsrooms.filter((n) => n.name.toLowerCase().includes(term) || n.ownerEmail.toLowerCase().includes(term));
   }, [newsrooms, search]);
 
-  const totals = useMemo(
-    () =>
-      newsrooms.reduce(
-        (acc, n) => ({
-          publications: acc.publications + n.month.publications,
-          cost: n.month.totalCostUsd === null ? acc.cost : (acc.cost ?? 0) + n.month.totalCostUsd,
-          active: acc.active + (n.status === 'active' ? 1 : 0),
-        }),
-        { publications: 0, cost: null as number | null, active: 0 }
-      ),
-    [newsrooms]
-  );
+  const totals = useMemo(() => summarizeNewsrooms(newsrooms), [newsrooms]);
 
   if (!isOpen) return null;
 
@@ -241,7 +239,7 @@ export const AdminNewsroomsPanel: React.FC<AdminNewsroomsPanelProps> = ({ isOpen
               <h2 className="text-base font-bold text-brand-ink">Administración de medios</h2>
               <p className="text-xs text-brand-navy/60">
                 {newsrooms.length} medios · {totals.active} activos · {numberFormat.format(totals.publications)} publicaciones en{' '}
-                {monthLabel(month).toLowerCase()} · costo {formatCost(totals.cost)}
+                {monthLabel(month).toLowerCase()} · costo {describeTotalCost(totals, usdFormat.format)}
               </p>
             </div>
           </div>
@@ -450,7 +448,19 @@ export const AdminNewsroomsPanel: React.FC<AdminNewsroomsPanelProps> = ({ isOpen
                   <h4 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-brand-navy/80">
                     <BarChart3 className="h-3.5 w-3.5" /> Consumo mensual
                   </h4>
-                  {usage === null ? (
+                  {usageFailed ? (
+                    <div className="mt-3 flex items-center gap-3 text-xs text-rose-700">
+                      <AlertCircle className="h-3.5 w-3.5" />
+                      <span>No se pudo cargar el consumo.</span>
+                      <button
+                        type="button"
+                        onClick={() => setUsageAttempt((attempt) => attempt + 1)}
+                        className="rounded-lg border border-brand-navy/15 px-2.5 py-1 font-medium text-brand-ink hover:bg-brand-navy/5"
+                      >
+                        Reintentar
+                      </button>
+                    </div>
+                  ) : usage === null ? (
                     <p className="mt-3 text-xs text-brand-navy/50">Cargando consumo…</p>
                   ) : usage.length === 0 ? (
                     <p className="mt-3 text-xs text-brand-navy/50">Este medio todavía no generó publicaciones.</p>
