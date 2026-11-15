@@ -19,7 +19,14 @@ export type MembershipErrorCode =
   | 'ORGANIZATION_NOT_FOUND'
   | 'ALREADY_OWNER'
   | 'OWNER_CANNOT_BE_REMOVED'
-  | 'MEMBER_NOT_FOUND';
+  | 'MEMBER_NOT_FOUND'
+  | 'INVALID_SEAT_LIMIT'
+  | 'SEAT_LIMIT_REACHED'
+  | 'MANAGER_MUST_BE_MEMBER'
+  | 'NOT_TEAM_MANAGER'
+  | 'TEAM_SUSPENDED'
+  | 'MANAGER_CANNOT_REMOVE_SELF'
+  | 'ACCOUNT_IN_OTHER_NEWSROOM';
 
 export class MembershipError extends Error {
   constructor(public readonly code: MembershipErrorCode) {
@@ -83,8 +90,118 @@ export async function requireOrganization(orgId: unknown) {
   return snap;
 }
 
+// ==========================================
+// Seats and the newsroom manager
+// ==========================================
+
+/**
+ * Who is changing a team. The platform admin can do anything; a newsroom manager
+ * (organizations/{id}.managerUid) only acts on its own newsroom, within its seat limit, and
+ * cannot pull accounts that belong to another newsroom.
+ */
+export type MemberActor = { kind: 'platform-admin' } | { kind: 'manager'; uid: string };
+const PLATFORM_ADMIN: MemberActor = { kind: 'platform-admin' };
+
+const MAX_SEAT_LIMIT = 1000;
+
+/** Validates a seat limit sent by the admin: a whole number from 1 to 1000, or null for no limit. */
+function parseSeatLimit(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > MAX_SEAT_LIMIT) {
+    throw new MembershipError('INVALID_SEAT_LIMIT');
+  }
+  return value;
+}
+
+export function seatLimitOf(data: FirebaseFirestore.DocumentData | undefined): number | null {
+  const value = data?.seatLimit;
+  return typeof value === 'number' && Number.isInteger(value) && value >= 1 ? value : null;
+}
+
+/** Accounts holding a seat: the owner (if any) and every member. Pending invites are counted apart. */
+export function seatHolders(data: FirebaseFirestore.DocumentData | undefined): Set<string> {
+  const owner = typeof data?.ownerUid === 'string' ? data.ownerUid : '';
+  return new Set([owner, ...membersOf(data)].filter(Boolean));
+}
+
+type QueryReader = (query: FirebaseFirestore.Query) => Promise<FirebaseFirestore.QuerySnapshot>;
+
+/** Seats in use; the invite of `exceptEmail` is left out because adding that email reuses its seat. */
+async function seatsInUse(read: QueryReader, orgId: string, data: FirebaseFirestore.DocumentData | undefined, exceptEmail?: string) {
+  const invites = await read(getAdminDb().collection('invites').where('orgId', '==', orgId));
+  return seatHolders(data).size + invites.docs.filter((doc) => doc.id !== exceptEmail).length;
+}
+
+function assertManagerOf(data: FirebaseFirestore.DocumentData | undefined, actor: MemberActor) {
+  if (actor.kind !== 'manager') return;
+  if (!actor.uid || data?.managerUid !== actor.uid) throw new MembershipError('NOT_TEAM_MANAGER');
+  if (data?.status === 'suspended') throw new MembershipError('TEAM_SUSPENDED');
+}
+
+/** Rejects, for a manager, an account or email that already belongs to or is invited to another newsroom. */
+async function assertNotInOtherNewsroom(
+  transaction: FirebaseFirestore.Transaction,
+  orgId: string,
+  email: string,
+  accountUid: string | null
+) {
+  const db = getAdminDb();
+  const invite = await transaction.get(db.doc(`invites/${email}`));
+  if (invite.exists && invite.data()?.orgId !== orgId) throw new MembershipError('ACCOUNT_IN_OTHER_NEWSROOM');
+  if (!accountUid) return;
+
+  const [memberOf, ownerOf, user] = await Promise.all([
+    transaction.get(db.collection('organizations').where('members', 'array-contains', accountUid)),
+    transaction.get(db.collection('organizations').where('ownerUid', '==', accountUid)),
+    transaction.get(db.doc(`users/${accountUid}`)),
+  ]);
+  const elsewhere = [...memberOf.docs, ...ownerOf.docs].some((doc) => doc.id !== orgId);
+  const pointer = user.data()?.organizationId;
+  const pointsElsewhere =
+    typeof pointer === 'string' && pointer !== '' && pointer !== orgId && (await transaction.get(db.doc(`organizations/${pointer}`))).exists;
+  if (elsewhere || pointsElsewhere) throw new MembershipError('ACCOUNT_IN_OTHER_NEWSROOM');
+}
+
+/** Sets or clears (null) the seat limit of a newsroom. Lowering it never removes anyone. */
+export async function setOrganizationSeatLimit(input: { orgId: string; seatLimit: unknown }): Promise<void> {
+  const seatLimit = parseSeatLimit(input.seatLimit);
+  const org = await requireOrganization(input.orgId);
+  await org.ref.update({ seatLimit: seatLimit === null ? FieldValue.delete() : seatLimit, updatedAt: new Date().toISOString() });
+}
+
+/** Makes an account of the newsroom its manager, or clears the manager when `email` is null. */
+export async function setOrganizationManager(
+  input: { orgId: string; email: unknown },
+  findAccount: FindAccountByEmail = findAccountByEmail
+): Promise<void> {
+  const org = await requireOrganization(input.orgId);
+  if (input.email === null) {
+    await org.ref.update({ managerUid: FieldValue.delete(), updatedAt: new Date().toISOString() });
+    return;
+  }
+  const account = await findAccount(normalizeEmail(input.email));
+  if (!account) throw new MembershipError('MANAGER_MUST_BE_MEMBER');
+
+  await getAdminDb().runTransaction(async (transaction) => {
+    const snap = await transaction.get(org.ref);
+    if (!seatHolders(snap.data()).has(account.uid)) throw new MembershipError('MANAGER_MUST_BE_MEMBER');
+    transaction.update(org.ref, { managerUid: account.uid, updatedAt: new Date().toISOString() });
+  });
+}
+
+/** Returns the newsroom the signed-in account manages, or rejects it. */
+export async function requireTeamManagerOrganization(uid: string): Promise<string> {
+  const db = getAdminDb();
+  const orgId = (await db.doc(`users/${uid}`).get()).data()?.organizationId;
+  if (typeof orgId !== 'string' || !orgId || orgId.includes('/')) throw new MembershipError('NOT_TEAM_MANAGER');
+  const org = await db.doc(`organizations/${orgId}`).get();
+  if (!org.exists) throw new MembershipError('NOT_TEAM_MANAGER');
+  assertManagerOf(org.data(), { kind: 'manager', uid });
+  return orgId;
+}
+
 /** Links a verified account to the organization, leaving every other organization it was a member of. */
-async function attachMember(account: AccountLookup, orgId: string): Promise<void> {
+async function attachMember(account: AccountLookup, orgId: string, actor: MemberActor = PLATFORM_ADMIN): Promise<void> {
   const db = getAdminDb();
   const orgRef = db.doc(`organizations/${orgId}`);
   const userRef = db.doc(`users/${account.uid}`);
@@ -93,24 +210,73 @@ async function attachMember(account: AccountLookup, orgId: string): Promise<void
   await db.runTransaction(async (transaction) => {
     const orgSnap = await transaction.get(orgRef);
     if (!orgSnap.exists) throw new MembershipError('ORGANIZATION_NOT_FOUND');
-    if (orgSnap.data()?.ownerUid === account.uid) throw new MembershipError('ALREADY_OWNER');
+    const org = orgSnap.data();
+    if (org?.ownerUid === account.uid) throw new MembershipError('ALREADY_OWNER');
 
     // The user's pointer may have moved (e.g. back to a personal organization), so search by membership.
     const previous = await transaction.get(
       db.collection('organizations').where('members', 'array-contains', account.uid)
     );
 
+    if (actor.kind === 'manager') {
+      assertManagerOf(org, actor);
+      await assertNotInOtherNewsroom(transaction, orgId, account.email, account.uid);
+      const limit = seatLimitOf(org);
+      const alreadyHoldsSeat = seatHolders(org).has(account.uid);
+      if (!alreadyHoldsSeat && limit !== null) {
+        const used = await seatsInUse((query) => transaction.get(query), orgId, org, account.email);
+        if (used + 1 > limit) throw new MembershipError('SEAT_LIMIT_REACHED');
+      }
+    }
+
     previous.docs
       .filter((doc) => doc.id !== orgId)
-      .forEach((doc) => transaction.update(doc.ref, { members: FieldValue.arrayRemove(account.uid) }));
+      .forEach((doc) =>
+        transaction.update(doc.ref, {
+          members: FieldValue.arrayRemove(account.uid),
+          // An account that leaves a newsroom cannot keep managing it.
+          ...(doc.data().managerUid === account.uid ? { managerUid: FieldValue.delete() } : {}),
+        })
+      );
     transaction.set(orgRef, { members: FieldValue.arrayUnion(account.uid) }, { merge: true });
     transaction.set(userRef, { organizationId: orgId, email: account.email }, { merge: true });
     transaction.delete(inviteRef);
   });
 }
 
+/** Records a pending invite; for a manager it is checked against the seat limit and other newsrooms. */
+async function recordPendingInvite(
+  input: { orgId: string; email: string; invitedByUid: string; invitedByEmail?: string },
+  account: AccountLookup | null,
+  actor: MemberActor
+): Promise<void> {
+  const db = getAdminDb();
+  const orgRef = db.doc(`organizations/${input.orgId}`);
+  const inviteRef = db.doc(`invites/${input.email}`);
+  await db.runTransaction(async (transaction) => {
+    if (actor.kind === 'manager') {
+      const orgSnap = await transaction.get(orgRef);
+      if (!orgSnap.exists) throw new MembershipError('ORGANIZATION_NOT_FOUND');
+      const org = orgSnap.data();
+      assertManagerOf(org, actor);
+      await assertNotInOtherNewsroom(transaction, input.orgId, input.email, account?.uid || null);
+      const limit = seatLimitOf(org);
+      if (limit !== null && (await seatsInUse((query) => transaction.get(query), input.orgId, org, input.email)) + 1 > limit) {
+        throw new MembershipError('SEAT_LIMIT_REACHED');
+      }
+    }
+    transaction.set(inviteRef, {
+      email: input.email,
+      orgId: input.orgId,
+      invitedByUid: input.invitedByUid,
+      invitedByEmail: input.invitedByEmail || '',
+      createdAt: new Date().toISOString(),
+    });
+  });
+}
+
 export async function addOrganizationMember(
-  input: { orgId: string; email: unknown; invitedByUid: string; invitedByEmail?: string },
+  input: { orgId: string; email: unknown; invitedByUid: string; invitedByEmail?: string; actor?: MemberActor },
   findAccount: FindAccountByEmail = findAccountByEmail,
   createAccount: CreateAccount | null = createAuthAccount,
   deleteAccount: DeleteAccount = deleteAuthAccount
@@ -119,12 +285,23 @@ export async function addOrganizationMember(
   | { status: 'created'; email: string; uid: string }
   | { status: 'pending'; email: string }
 > {
+  const actor = input.actor || PLATFORM_ADMIN;
   const email = normalizeEmail(input.email);
   const org = await requireOrganization(input.orgId);
+  assertManagerOf(org.data(), actor);
   let account = await findAccount(email);
 
   // New person: create the account now; the admin's browser then emails the set-password link.
   if (!account && createAccount) {
+    if (actor.kind === 'manager') {
+      // Checked before creating anything, so a full newsroom or a foreign invite never creates an account.
+      const invite = await getAdminDb().doc(`invites/${email}`).get();
+      if (invite.exists && invite.data()?.orgId !== input.orgId) throw new MembershipError('ACCOUNT_IN_OTHER_NEWSROOM');
+      const limit = seatLimitOf(org.data());
+      if (limit !== null && (await seatsInUse((query) => query.get(), input.orgId, org.data(), email)) + 1 > limit) {
+        throw new MembershipError('SEAT_LIMIT_REACHED');
+      }
+    }
     let createdAccount: AccountLookup | null = null;
     try {
       createdAccount = await createAccount(email);
@@ -139,7 +316,7 @@ export async function addOrganizationMember(
 
     if (createdAccount) {
       try {
-        await attachMember({ ...createdAccount, email }, input.orgId);
+        await attachMember({ ...createdAccount, email }, input.orgId, actor);
         return { status: 'created', email, uid: createdAccount.uid };
       } catch (error: any) {
         // The account exists only for this invite and was never used: remove it so a retry starts clean.
@@ -156,34 +333,30 @@ export async function addOrganizationMember(
   if (account && org.data()?.ownerUid === account.uid) throw new MembershipError('ALREADY_OWNER');
 
   if (account?.emailVerified) {
-    await attachMember({ ...account, email }, input.orgId);
+    await attachMember({ ...account, email }, input.orgId, actor);
     return { status: 'active', email, uid: account.uid };
   }
 
   // Pending invite: an existing but unverified account must prove the address first (prevents
   // squatting an email), or no account exists and account creation is disabled.
-
-  await getAdminDb().doc(`invites/${email}`).set({
-    email,
-    orgId: input.orgId,
-    invitedByUid: input.invitedByUid,
-    invitedByEmail: input.invitedByEmail || '',
-    createdAt: new Date().toISOString(),
-  });
+  await recordPendingInvite({ ...input, email }, account, actor);
   return { status: 'pending', email };
 }
 
 export async function removeOrganizationMember(
-  input: { orgId: string; email: unknown },
+  input: { orgId: string; email: unknown; actor?: MemberActor },
   findAccount: FindAccountByEmail = findAccountByEmail
 ): Promise<void> {
+  const actor = input.actor || PLATFORM_ADMIN;
   const email = normalizeEmail(input.email);
   const org = await requireOrganization(input.orgId);
+  assertManagerOf(org.data(), actor);
   const db = getAdminDb();
 
   // Validate before mutating anything, so a rejected request leaves no partial changes.
   const account = await findAccount(email);
   if (account && org.data()?.ownerUid === account.uid) throw new MembershipError('OWNER_CANNOT_BE_REMOVED');
+  if (account && actor.kind === 'manager' && account.uid === actor.uid) throw new MembershipError('MANAGER_CANNOT_REMOVE_SELF');
 
   const inviteRef = db.doc(`invites/${email}`);
   const invite = await inviteRef.get();
@@ -197,7 +370,12 @@ export async function removeOrganizationMember(
     wasMember = await db.runTransaction(async (transaction) => {
       const [orgSnap, userSnap] = await transaction.getAll(orgRef, userRef);
       const isMember = membersOf(orgSnap.data()).includes(account.uid);
-      if (isMember) transaction.update(orgRef, { members: FieldValue.arrayRemove(account.uid) });
+      if (isMember) {
+        transaction.update(orgRef, {
+          members: FieldValue.arrayRemove(account.uid),
+          ...(orgSnap.data()?.managerUid === account.uid ? { managerUid: FieldValue.delete() } : {}),
+        });
+      }
       // Without a pointer the next sign-in falls back to the account's own organization.
       if (userSnap.data()?.organizationId === input.orgId) {
         transaction.update(userRef, { organizationId: FieldValue.delete() });
@@ -213,6 +391,11 @@ export interface OrganizationMembersListing {
   owner: { uid: string; email: string } | null;
   members: Array<{ uid: string; email: string }>;
   invites: Array<{ email: string; createdAt: string }>;
+  managerUid: string | null;
+  /** Null when the newsroom has no seat limit. */
+  seatLimit: number | null;
+  /** Owner, members and pending invites. */
+  seatsUsed: number;
 }
 
 export async function listOrganizationMembers(orgId: string): Promise<OrganizationMembersListing> {
@@ -232,6 +415,9 @@ export async function listOrganizationMembers(orgId: string): Promise<Organizati
     invites: invites.docs
       .map((doc) => ({ email: doc.id, createdAt: String(doc.data().createdAt || '') }))
       .sort((a, b) => a.email.localeCompare(b.email)),
+    managerUid: typeof org.data()?.managerUid === 'string' && org.data()!.managerUid ? org.data()!.managerUid : null,
+    seatLimit: seatLimitOf(org.data()),
+    seatsUsed: seatHolders(org.data()).size + invites.size,
   };
 }
 
@@ -272,9 +458,10 @@ export async function acceptPendingInvites(identity: { uid: string; email: strin
  * Creates a newsroom without an owner so the platform admin can prepare its identity and templates
  * before adding the client's accounts as members.
  */
-export async function createManagedOrganization(input: { name: unknown; adminUid: string }): Promise<string> {
+export async function createManagedOrganization(input: { name: unknown; adminUid: string; seatLimit?: unknown }): Promise<string> {
   const name = typeof input.name === 'string' ? input.name.trim() : '';
   if (!name || name.length > 120) throw new MembershipError('INVALID_NAME');
+  const seatLimit = parseSeatLimit(input.seatLimit);
 
   const ref = getAdminDb().collection('organizations').doc();
   await ref.set({
@@ -287,6 +474,7 @@ export async function createManagedOrganization(input: { name: unknown; adminUid
     orgType: 'Medio Digital',
     createdAt: new Date().toISOString(),
     createdByAdminUid: input.adminUid,
+    ...(seatLimit === null ? {} : { seatLimit }),
   });
   return ref.id;
 }

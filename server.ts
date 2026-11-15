@@ -63,6 +63,12 @@ import {
   listOrganizationMembers,
   MembershipError,
   removeOrganizationMember,
+  requireTeamManagerOrganization,
+  setOrganizationManager,
+  setOrganizationSeatLimit,
+  type CreateAccount,
+  type DeleteAccount,
+  type FindAccountByEmail,
 } from './server/organization-members';
 import { OrganizationAccessError } from './server/organization-lifecycle';
 import { getOrganizationUsageHistory, listManagedOrganizations, setOrganizationLifecycle } from './server/organization-admin';
@@ -137,6 +143,8 @@ export interface ServerTestDependencies {
     postFinalPreHttp?: () => Promise<void> | void;
     beforeAggregate?: () => Promise<void> | void;
   };
+  /** Firebase Auth lookups used by the team endpoints, replaceable in tests without an Auth emulator. */
+  membership?: { findAccount?: FindAccountByEmail; createAccount?: CreateAccount | null; deleteAccount?: DeleteAccount };
   skipStatic?: boolean;
 }
 
@@ -506,6 +514,13 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
       ALREADY_OWNER: [409, 'Esa cuenta ya es la dueña de este medio.'],
       OWNER_CANNOT_BE_REMOVED: [409, 'No se puede quitar a la cuenta dueña del medio.'],
       MEMBER_NOT_FOUND: [404, 'Esa cuenta no pertenece a este medio ni tiene una invitación pendiente.'],
+      INVALID_SEAT_LIMIT: [400, 'El cupo debe ser un número entero entre 1 y 1000, o vacío para no tener cupo.'],
+      SEAT_LIMIT_REACHED: [409, 'El medio ya usa todas sus cuentas disponibles. Quitá una cuenta o una invitación, o pedile al equipo de Titular que amplíe el cupo.'],
+      MANAGER_MUST_BE_MEMBER: [400, 'El responsable tiene que ser una cuenta del medio. Agregala primero al equipo.'],
+      NOT_TEAM_MANAGER: [403, 'Solo el responsable del medio puede gestionar su equipo.'],
+      TEAM_SUSPENDED: [409, 'El medio está suspendido: no se puede modificar su equipo. Contactá al equipo de Titular.'],
+      MANAGER_CANNOT_REMOVE_SELF: [409, 'No podés quitarte a vos mismo del medio. Pedíselo al equipo de Titular.'],
+      ACCOUNT_IN_OTHER_NEWSROOM: [409, 'Esa cuenta ya pertenece a otro medio o tiene una invitación pendiente de otro medio. Contactá al equipo de Titular.'],
     };
 
     function sendMembershipError(res: express.Response, err: unknown, fallback: string) {
@@ -527,7 +542,11 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
     app.post('/api/admin/organizations', verifyFirebaseAuth as any, async (req: AuthenticatedRequest, res) => {
       try {
         if (!(await requirePlatformAdmin(req, res))) return;
-        const organizationId = await createManagedOrganization({ name: req.body?.name, adminUid: req.user!.uid });
+        const organizationId = await createManagedOrganization({
+          name: req.body?.name,
+          adminUid: req.user!.uid,
+          seatLimit: req.body?.seatLimit,
+        });
         return res.json({ organizationId });
       } catch (err) {
         return sendMembershipError(res, err, 'Error al crear el medio.');
@@ -561,6 +580,26 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
         return res.json({ success: true });
       } catch (err) {
         return sendMembershipError(res, err, 'Error al cambiar el estado del medio.');
+      }
+    });
+
+    app.post('/api/admin/organizations/:orgId/seat-limit', verifyFirebaseAuth as any, async (req: AuthenticatedRequest, res) => {
+      try {
+        if (!(await requirePlatformAdmin(req, res))) return;
+        await setOrganizationSeatLimit({ orgId: req.params.orgId, seatLimit: req.body?.seatLimit ?? null });
+        return res.json({ success: true });
+      } catch (err) {
+        return sendMembershipError(res, err, 'Error al cambiar el cupo del medio.');
+      }
+    });
+
+    app.post('/api/admin/organizations/:orgId/manager', verifyFirebaseAuth as any, async (req: AuthenticatedRequest, res) => {
+      try {
+        if (!(await requirePlatformAdmin(req, res))) return;
+        await setOrganizationManager({ orgId: req.params.orgId, email: req.body?.email ?? null });
+        return res.json({ success: true });
+      } catch (err) {
+        return sendMembershipError(res, err, 'Error al cambiar el responsable del medio.');
       }
     });
 
@@ -613,6 +652,57 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
       try {
         if (!(await requirePlatformAdmin(req, res))) return;
         await removeOrganizationMember({ orgId: req.params.orgId, email: req.body?.email });
+        return res.json({ success: true });
+      } catch (err) {
+        return sendMembershipError(res, err, 'Error al quitar la cuenta del medio.');
+      }
+    });
+
+    // API Routes: the newsroom manager manages its own team, within the seat limit set by the platform admin
+    const findAccount = dependencies.membership?.findAccount;
+    const createAccount = dependencies.membership && 'createAccount' in dependencies.membership ? dependencies.membership.createAccount : undefined;
+    const deleteAccount = dependencies.membership?.deleteAccount;
+    const consumeTeamInvite = createRateLimiter({ windowMs: 3_600_000, max: getOptionalNumberEnv('TEAM_INVITES_PER_HOUR', 20) });
+
+    app.get('/api/team/members', verifyAuth as any, async (req: AuthenticatedRequest, res) => {
+      try {
+        const orgId = await requireTeamManagerOrganization(req.user!.uid);
+        return res.json(await listOrganizationMembers(orgId));
+      } catch (err) {
+        return sendMembershipError(res, err, 'Error al consultar el equipo del medio.');
+      }
+    });
+
+    app.post('/api/team/members', verifyAuth as any, async (req: AuthenticatedRequest, res) => {
+      try {
+        const orgId = await requireTeamManagerOrganization(req.user!.uid);
+        const decision = consumeTeamInvite(req.user!.uid);
+        if (!decision.allowed) {
+          res.setHeader('Retry-After', String(decision.retryAfterSeconds));
+          return res.status(429).json({ code: 'RATE_LIMITED', error: 'Enviaste muchas invitaciones seguidas. Probá de nuevo más tarde.' });
+        }
+        const result = await addOrganizationMember(
+          {
+            orgId,
+            email: req.body?.email,
+            invitedByUid: req.user!.uid,
+            invitedByEmail: req.user!.email,
+            actor: { kind: 'manager', uid: req.user!.uid },
+          },
+          findAccount,
+          createAccount,
+          deleteAccount
+        );
+        return res.json(result);
+      } catch (err) {
+        return sendMembershipError(res, err, 'Error al agregar la cuenta al medio.');
+      }
+    });
+
+    app.post('/api/team/members/remove', verifyAuth as any, async (req: AuthenticatedRequest, res) => {
+      try {
+        const orgId = await requireTeamManagerOrganization(req.user!.uid);
+        await removeOrganizationMember({ orgId, email: req.body?.email, actor: { kind: 'manager', uid: req.user!.uid } }, findAccount);
         return res.json({ success: true });
       } catch (err) {
         return sendMembershipError(res, err, 'Error al quitar la cuenta del medio.');

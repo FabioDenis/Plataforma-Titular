@@ -1,5 +1,5 @@
 import { getAdminDb } from './firebase-admin';
-import { MembershipError, requireOrganization } from './organization-members';
+import { MembershipError, requireOrganization, seatHolders, seatLimitOf } from './organization-members';
 import { ORGANIZATION_LIFECYCLES, OrganizationLifecycle, organizationLifecycle } from './organization-lifecycle';
 
 /**
@@ -21,6 +21,11 @@ export interface ManagedOrganizationRow {
   ownerEmail: string;
   membersCount: number;
   pendingInvites: number;
+  /** Null when the newsroom has no seat limit. */
+  seatLimit: number | null;
+  /** Owner, members and pending invites. */
+  seatsUsed: number;
+  managerEmail: string;
   createdAt: string;
   lastGenerationAt: string | null;
   totalPublications: number;
@@ -51,9 +56,13 @@ export async function listManagedOrganizations(month: string = currentMonthKey()
   if (orgs.length === 0) return [];
 
   const usage = await db.getAll(...orgs.map((org) => org.ref.collection('aiUsageMonthly').doc(month)));
-  const ownerUids = [...new Set(orgs.map((org) => org.data().ownerUid).filter((uid) => typeof uid === 'string' && uid))];
-  const owners = ownerUids.length ? await db.getAll(...ownerUids.map((uid) => db.doc(`users/${uid}`))) : [];
-  const emailOf = new Map(owners.map((snap) => [snap.id, String(snap.data()?.email || '')]));
+  const uids = [
+    ...new Set(
+      orgs.flatMap((org) => [org.data().ownerUid, org.data().managerUid]).filter((uid) => typeof uid === 'string' && uid && !uid.includes('/'))
+    ),
+  ];
+  const users = uids.length ? await db.getAll(...uids.map((uid) => db.doc(`users/${uid}`))) : [];
+  const emailOf = new Map(users.map((snap) => [snap.id, String(snap.data()?.email || '')]));
 
   const invitesByOrg = new Map<string, number>();
   (await db.collection('invites').get()).docs.forEach((invite) => {
@@ -71,6 +80,9 @@ export async function listManagedOrganizations(month: string = currentMonthKey()
       ownerEmail: emailOf.get(data.ownerUid) || String(data.ownerEmail || ''),
       membersCount: members.length,
       pendingInvites: invitesByOrg.get(org.id) || 0,
+      seatLimit: seatLimitOf(data),
+      seatsUsed: seatHolders(data).size + (invitesByOrg.get(org.id) || 0),
+      managerEmail: (typeof data.managerUid === 'string' && emailOf.get(data.managerUid)) || '',
       createdAt: String(data.createdAt || ''),
       lastGenerationAt: typeof data.lastGenerationAt === 'string' ? data.lastGenerationAt : null,
       totalPublications: Number(data.publicationUsed || 0),
