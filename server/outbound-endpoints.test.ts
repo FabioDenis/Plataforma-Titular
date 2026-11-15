@@ -113,9 +113,37 @@ test('proxy-image returns the remote image privately and without a wildcard CORS
     assert.equal(response.headers.get('access-control-allow-origin'), null);
     assert.equal(response.headers.get('cache-control'), 'private, max-age=86400');
     assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
+    assert.equal(response.headers.get('content-security-policy'), 'sandbox');
     assert.deepEqual([...new Uint8Array(await response.arrayBuffer())], [1, 2, 3, 4]);
   });
   assert.deepEqual(outbound.urls, ['https://example.com/photo.png']);
+});
+
+test('proxy-image serves images sent without a type or as a generic binary type', async () => {
+  const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0x10]);
+  const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  for (const [headers, body, expected] of [
+    [{ 'content-type': 'application/octet-stream' }, jpeg, 'image/jpeg'],
+    [{ 'content-type': 'binary/octet-stream' }, png, 'image/png'],
+    [{}, png, 'image/png'],
+  ] as const) {
+    const outbound = recordingFetch(() => new Response(body, { headers }));
+    await withApp({ fetch: outbound.fetcher }, async (baseUrl) => {
+      const response = await proxyImage(baseUrl, 'https://cdn.example.com/photo');
+      assert.equal(response.status, 200, expected);
+      assert.equal(response.headers.get('content-type'), expected);
+      assert.deepEqual([...new Uint8Array(await response.arrayBuffer())], [...body]);
+    });
+  }
+});
+
+test('proxy-image refuses a generic binary type whose bytes are not an image', async () => {
+  const outbound = recordingFetch(() => new Response(new TextEncoder().encode('<html>secret</html>'), { headers: { 'content-type': 'application/octet-stream' } }));
+  await withApp({ fetch: outbound.fetcher }, async (baseUrl) => {
+    const response = await proxyImage(baseUrl, 'https://cdn.example.com/page');
+    assert.equal(response.status, 415);
+    assert.doesNotMatch(await response.text(), /secret/);
+  });
 });
 
 test('proxy-image refuses remote content that is not an image', async () => {

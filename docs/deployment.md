@@ -260,7 +260,7 @@ Endpoints that fetch a caller-supplied URL are **not public**: both require a Fi
 
 | Endpoint | Protection |
 |---|---|
-| `GET /api/proxy-image` | Firebase ID token + per-user rate limit + `safeFetch` (resolved-IP SSRF guard, validated redirects, 12s timeout, 10 MB cap) + `image/*` responses only |
+| `GET /api/proxy-image` | Firebase ID token + per-user rate limit + `safeFetch` (resolved-IP SSRF guard, validated redirects, 12s timeout, 10 MB cap) + images only: `image/*`, or a missing/`application/octet-stream` type whose bytes are JPEG, PNG, GIF, WebP or AVIF; served with `nosniff` and `Content-Security-Policy: sandbox` |
 | `POST /api/extract` | Firebase ID token + per-user rate limit + `safeFetch` (resolved-IP SSRF guard, validated redirects, 10s timeout, 10 MB cap) |
 
 ## 9.1 Security review (Phases 14-15)

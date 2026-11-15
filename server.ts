@@ -68,6 +68,7 @@ import { OrganizationAccessError } from './server/organization-lifecycle';
 import { getOrganizationUsageHistory, listManagedOrganizations, setOrganizationLifecycle } from './server/organization-admin';
 import { isPublicHttpUrl, safeFetch, SafeFetch, SafeFetchError } from './server/safe-fetch';
 import { createRateLimiter } from './server/rate-limit';
+import { resolveImageContentType } from './server/image-type';
 
 // Safe resolution for __dirname in both CJS bundle and ESM environments
 const getCurrentDir = (): string => {
@@ -364,16 +365,18 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
           return res.status(response.status).json({ error: `Servidor remoto retornó status ${response.status}` });
         }
 
-        const contentType = response.headers.get('content-type') || '';
-        if (!contentType.toLowerCase().startsWith('image/')) {
+        const buffer = Buffer.from(await response.arrayBuffer());
+        const contentType = resolveImageContentType(response.headers.get('content-type') || '', buffer);
+        if (!contentType) {
           return res.status(415).json({ error: 'El recurso remoto no es una imagen.' });
         }
-        const buffer = await response.arrayBuffer();
 
         res.setHeader('Content-Type', contentType);
         res.setHeader('X-Content-Type-Options', 'nosniff');
+        // Defense in depth for SVG: opened directly, the image cannot run scripts on this origin.
+        res.setHeader('Content-Security-Policy', 'sandbox');
         res.setHeader('Cache-Control', 'private, max-age=86400');
-        return res.send(Buffer.from(buffer));
+        return res.send(buffer);
       } catch (err: any) {
         if (err instanceof SafeFetchError) {
           if (err.code === 'UNSAFE_URL') return res.status(400).json({ error: 'La URL solicitada no está permitida.' });
