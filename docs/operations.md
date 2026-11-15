@@ -117,11 +117,13 @@ npx firebase hosting:rollback
 - The manager sees "Equipo del medio" in its user menu and can invite and remove accounts of
   its own newsroom through `/api/team/members` while seats are free. It cannot change the
   limit or the lifecycle, cannot remove itself, cannot add an account that belongs to (or is
-  invited to) another newsroom, and cannot manage a suspended newsroom.
+  invited to) another newsroom or a platform admin, and cannot manage a suspended newsroom.
+  The empty personal newsroom an account gets when it signs in without one (self-created, in
+  preparation, no team) does not count as belonging to another newsroom.
 - The platform admin is never limited by the seat limit, and lowering the limit never
   removes anyone: it only blocks new accounts until seats free up.
 - Manager invitations are limited per manager by `TEAM_INVITES_PER_HOUR` (default `20`,
-  in-memory like the other rate limits).
+  in-memory like the other rate limits); only invitations that succeed count.
 
 ### 4.6 Cost expectations
 

@@ -270,8 +270,11 @@ test('a manager cannot pull an account that belongs to another newsroom', async 
     addOrganizationMember({ orgId: second.orgId, email: first.manager.email, invitedByUid: second.manager.uid, actor: managedBy(second.manager.uid) }, find),
     isCode('ACCOUNT_IN_OTHER_NEWSROOM')
   );
+  // An account that owns a newsroom in use (here, one with a team) belongs to it.
   const owner = account();
-  await bootstrapAccount(owner);
+  const ownTeam = account();
+  const own = await bootstrapAccount(owner);
+  await addOrganizationMember({ orgId: own.organization.id, email: ownTeam.email, invitedByUid: 'platform-admin' }, directory(ownTeam));
   await assert.rejects(
     addOrganizationMember({ orgId: second.orgId, email: owner.email, invitedByUid: second.manager.uid, actor: managedBy(second.manager.uid) }, directory(owner)),
     isCode('ACCOUNT_IN_OTHER_NEWSROOM')
@@ -280,6 +283,59 @@ test('a manager cannot pull an account that belongs to another newsroom', async 
   const db = getAdminDb();
   assert.ok(((await db.doc(`organizations/${first.orgId}`).get()).data()!.members as string[]).includes(reporter.uid));
   assert.equal((await db.doc(`users/${reporter.uid}`).get()).data()!.organizationId, first.orgId);
+});
+
+test('an account whose only newsroom is the empty personal one created at sign-in counts as free', async () => {
+  const { orgId, manager } = await managedNewsroom(5);
+  const newcomer = account();
+  await bootstrapAccount(newcomer);
+
+  const result = await addOrganizationMember({ orgId, email: newcomer.email, invitedByUid: manager.uid, actor: managedBy(manager.uid) }, directory(manager, newcomer));
+
+  assert.equal(result.status, 'active');
+  assert.equal((await getAdminDb().doc(`users/${newcomer.uid}`).get()).data()!.organizationId, orgId);
+});
+
+test('the manager can add back an account it removed, even after that account signed in again', async () => {
+  const { orgId, manager } = await managedNewsroom(5);
+  const reporter = account();
+  const find = directory(manager, reporter);
+  await addOrganizationMember({ orgId, email: reporter.email, invitedByUid: manager.uid, actor: managedBy(manager.uid) }, find);
+  await removeOrganizationMember({ orgId, email: reporter.email, actor: managedBy(manager.uid) }, find);
+  await bootstrapAccount(reporter);
+
+  const again = await addOrganizationMember({ orgId, email: reporter.email, invitedByUid: manager.uid, actor: managedBy(manager.uid) }, find);
+  assert.equal(again.status, 'active');
+});
+
+test('a personal newsroom that is active or was activated by the admin is not treated as free', async () => {
+  const { orgId, manager } = await managedNewsroom(5);
+  const owner = account();
+  const own = await bootstrapAccount(owner);
+  await getAdminDb().doc(`organizations/${own.organization.id}`).set({ status: 'active' }, { merge: true });
+
+  await assert.rejects(
+    addOrganizationMember({ orgId, email: owner.email, invitedByUid: manager.uid, actor: managedBy(manager.uid) }, directory(manager, owner)),
+    isCode('ACCOUNT_IN_OTHER_NEWSROOM')
+  );
+});
+
+test('a manager cannot add a platform admin account', async () => {
+  const { orgId, manager } = await managedNewsroom(5);
+  const platformAdmin = account();
+  await bootstrapAccount(platformAdmin);
+  await getAdminDb().doc(`users/${platformAdmin.uid}`).set({ isAdmin: true }, { merge: true });
+
+  await assert.rejects(
+    addOrganizationMember({ orgId, email: platformAdmin.email, invitedByUid: manager.uid, actor: managedBy(manager.uid) }, directory(manager, platformAdmin)),
+    isCode('ACCOUNT_IN_OTHER_NEWSROOM')
+  );
+});
+
+test('a newsroom suspended with an older status spelling cannot be managed either', async () => {
+  const { orgId, manager } = await managedNewsroom(3);
+  await getAdminDb().doc(`organizations/${orgId}`).set({ status: 'Suspendida' }, { merge: true });
+  await assert.rejects(requireTeamManagerOrganization(manager.uid), isCode('TEAM_SUSPENDED'));
 });
 
 test('a manager cannot take over an invite to another newsroom', async () => {
@@ -405,6 +461,25 @@ test('invites sent by a manager record who sent them and are rate limited per ho
   assert.equal(invite.orgId, orgId);
   assert.equal(invite.invitedByUid, manager.uid);
   assert.equal((await getAdminDb().doc(`invites/${second.email}`).get()).exists, false);
+});
+
+test('only invitations that succeed count toward the hourly limit', async () => {
+  const { manager } = await managedNewsroom(2);
+  const first = account(false);
+  const second = account(false);
+  process.env.TEAM_INVITES_PER_HOUR = '1';
+  try {
+    await withTeamApp([manager, first, second], async (baseUrl) => {
+      const invalid = await fetch(`${baseUrl}/api/team/members`, { method: 'POST', headers: as(manager), body: JSON.stringify({ email: 'not-an-email' }) });
+      assert.equal(invalid.status, 400);
+      const ok = await fetch(`${baseUrl}/api/team/members`, { method: 'POST', headers: as(manager), body: JSON.stringify({ email: first.email }) });
+      assert.equal(ok.status, 200);
+      const limited = await fetch(`${baseUrl}/api/team/members`, { method: 'POST', headers: as(manager), body: JSON.stringify({ email: second.email }) });
+      assert.equal(limited.status, 429);
+    });
+  } finally {
+    delete process.env.TEAM_INVITES_PER_HOUR;
+  }
 });
 
 test('a suspended newsroom cannot be managed through the team endpoints', async () => {

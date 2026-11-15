@@ -1,5 +1,6 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { getAdminAuth, getAdminDb } from './firebase-admin';
+import { organizationLifecycle } from './organization-lifecycle';
 
 /**
  * Organization membership (team accounts).
@@ -135,7 +136,22 @@ async function seatsInUse(read: QueryReader, orgId: string, data: FirebaseFirest
 function assertManagerOf(data: FirebaseFirestore.DocumentData | undefined, actor: MemberActor) {
   if (actor.kind !== 'manager') return;
   if (!actor.uid || data?.managerUid !== actor.uid) throw new MembershipError('NOT_TEAM_MANAGER');
-  if (data?.status === 'suspended') throw new MembershipError('TEAM_SUSPENDED');
+  if (organizationLifecycle(data) === 'suspended') throw new MembershipError('TEAM_SUSPENDED');
+}
+
+/**
+ * The personal newsroom every account gets when it signs in without one: self-created, still in
+ * preparation, with no team and no manager. Owning only that does not tie the account to a newsroom.
+ */
+function isUnusedPersonalNewsroom(doc: FirebaseFirestore.DocumentSnapshot, uid: string): boolean {
+  const data = doc.data();
+  return (
+    data?.selfSignup === true &&
+    data?.ownerUid === uid &&
+    organizationLifecycle(data) === 'draft' &&
+    membersOf(data).length === 0 &&
+    !data?.managerUid
+  );
 }
 
 /** Rejects, for a manager, an account or email that already belongs to or is invited to another newsroom. */
@@ -155,10 +171,20 @@ async function assertNotInOtherNewsroom(
     transaction.get(db.collection('organizations').where('ownerUid', '==', accountUid)),
     transaction.get(db.doc(`users/${accountUid}`)),
   ]);
-  const elsewhere = [...memberOf.docs, ...ownerOf.docs].some((doc) => doc.id !== orgId);
-  const pointer = user.data()?.organizationId;
-  const pointsElsewhere =
-    typeof pointer === 'string' && pointer !== '' && pointer !== orgId && (await transaction.get(db.doc(`organizations/${pointer}`))).exists;
+  // Platform admins are never pulled into a client team by its manager.
+  const userData = user.data();
+  if (userData?.isAdmin === true || userData?.role === 'admin' || userData?.role === 'superadmin') {
+    throw new MembershipError('ACCOUNT_IN_OTHER_NEWSROOM');
+  }
+
+  const belongsTo = (doc: FirebaseFirestore.DocumentSnapshot) => doc.id !== orgId && !isUnusedPersonalNewsroom(doc, accountUid);
+  const elsewhere = memberOf.docs.some((doc) => doc.id !== orgId) || ownerOf.docs.some(belongsTo);
+  const pointer = userData?.organizationId;
+  let pointsElsewhere = false;
+  if (typeof pointer === 'string' && pointer !== '' && pointer !== orgId && !pointer.includes('/')) {
+    const pointed = await transaction.get(db.doc(`organizations/${pointer}`));
+    pointsElsewhere = pointed.exists && belongsTo(pointed);
+  }
   if (elsewhere || pointsElsewhere) throw new MembershipError('ACCOUNT_IN_OTHER_NEWSROOM');
 }
 

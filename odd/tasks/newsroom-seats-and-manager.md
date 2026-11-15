@@ -16,7 +16,8 @@ Assumption (not asked): the manager role is stored as `organizations/{id}.manage
 
 - [x] T1 · S1, S2, S3, S4 · inline · server: seat limit, manager, enforcement, admin and team endpoints · `545d563` (RED 24/24 failing, GREEN 24/24; emulator 97/97)
 - [x] T2 · S1, S2 · inline · client: admin panel (limit, manager), team screen for the manager · `33b6a04` (RED helper module missing, GREEN 3/3; lint and build OK; browser check pending)
-- [ ] T3 · all · delegated verifier · independent verification (risk item 2: permissions)
+- [x] T3 · all · delegated verifier · independent verification (risk item 2: permissions) · no blockers; native review approved and acknowledged
+- [x] T4 · S3 · inline · follow-ups from verifier and review: unused personal newsroom counts as free, platform admins cannot be added by a manager, older suspended spellings, only successful invites count toward the hourly limit (RED 4, GREEN; unit 62/62, emulator 103/103)
 
 ## Log
 
@@ -24,3 +25,4 @@ Assumption (not asked): the manager role is stored as `organizations/{id}.manage
 - L2 Map: managed newsrooms have `ownerUid: ''`; every user gets `role: 'owner'`; all membership routes are platform-admin only; Firestore rules already keep `members` and any new limit field server-only.
 - L3 Route: inline, no writer trigger. High risk (item 2: permissions) → independent verifier at the end.
 - L4 One emulator run showed `concurrent bootstrap calls converge on one account and one free trial allocation` failing; two reruns passed 97/97 and the test does not touch the changed code. Treated as flaky, not fixed here.
+- L5 (2026-11-14) User: "si" to the follow-up commit (personal newsroom counted as free, suspended spellings, only successful invites count). Added: platform admin accounts are never added by a manager, because the personal-newsroom change would otherwise let a manager pull one.

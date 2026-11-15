@@ -12,7 +12,7 @@ export function createRateLimiter(options: { windowMs: number; max: number; now?
   const now = options.now || Date.now;
   const windows = new Map<string, { startedAt: number; count: number }>();
 
-  return function consume(key: string): RateLimitDecision {
+  function consume(key: string): RateLimitDecision {
     const current = now();
     if (windows.size >= MAX_TRACKED_KEYS) {
       for (const [trackedKey, window] of windows) {
@@ -30,5 +30,13 @@ export function createRateLimiter(options: { windowMs: number; max: number; now?
     }
     window.count += 1;
     return { allowed: true, retryAfterSeconds: 0 };
-  };
+  }
+
+  /** Gives back one use of the current window, for attempts that should not count (e.g. they failed). */
+  function release(key: string): void {
+    const window = windows.get(key);
+    if (window && window.count > 0) window.count -= 1;
+  }
+
+  return Object.assign(consume, { release });
 }

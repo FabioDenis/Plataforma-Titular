@@ -681,19 +681,25 @@ export async function createApp(dependencies: ServerTestDependencies = {}) {
           res.setHeader('Retry-After', String(decision.retryAfterSeconds));
           return res.status(429).json({ code: 'RATE_LIMITED', error: 'Enviaste muchas invitaciones seguidas. Probá de nuevo más tarde.' });
         }
-        const result = await addOrganizationMember(
-          {
-            orgId,
-            email: req.body?.email,
-            invitedByUid: req.user!.uid,
-            invitedByEmail: req.user!.email,
-            actor: { kind: 'manager', uid: req.user!.uid },
-          },
-          findAccount,
-          createAccount,
-          deleteAccount
-        );
-        return res.json(result);
+        try {
+          const result = await addOrganizationMember(
+            {
+              orgId,
+              email: req.body?.email,
+              invitedByUid: req.user!.uid,
+              invitedByEmail: req.user!.email,
+              actor: { kind: 'manager', uid: req.user!.uid },
+            },
+            findAccount,
+            createAccount,
+            deleteAccount
+          );
+          return res.json(result);
+        } catch (err) {
+          // Only invitations that go through count toward the hourly limit.
+          consumeTeamInvite.release(req.user!.uid);
+          throw err;
+        }
       } catch (err) {
         return sendMembershipError(res, err, 'Error al agregar la cuenta al medio.');
       }
