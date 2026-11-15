@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { History, Settings, LogOut, LogIn, Loader2, AlertCircle, ShieldCheck } from 'lucide-react';
+import { History, Settings, LogOut, LogIn, Loader2, AlertCircle, ShieldCheck, Users } from 'lucide-react';
 import titularStudioLogo from '../assets/titular-studio-logo.png';
 import { OutletBranding, OrganizationIdentity } from '../types';
 import { useAuth } from '../context/AuthContext';
@@ -14,6 +14,8 @@ interface HeaderProps {
   onOpenHistory: () => void;
   onOpenIntegrations: () => void;
   onOpenAdmin?: () => void;
+  /** Opens the team screen; shown only to the manager of the active newsroom. */
+  onOpenTeam?: () => void;
   savedCount: number;
 }
 
@@ -25,11 +27,13 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenBranding,
   onOpenHistory,
   onOpenAdmin,
+  onOpenTeam,
   savedCount,
 }) => {
   const { user, loading: authLoading, isAdmin, setIsAuthModalOpen, logout } = useAuth();
   const { organization } = useOrganization();
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const isTeamManager = Boolean(user && organization?.managerUid && organization.managerUid === user.uid);
 
   const currentOrgName = organization?.name || activeIdentity?.name || branding.name || 'Mi Medio';
 
@@ -157,6 +161,20 @@ export const Header: React.FC<HeaderProps> = ({
                       <Settings className="h-3.5 w-3.5 text-brand-navy/60 shrink-0" />
                       <span>Configurar Organización</span>
                     </button>
+
+                    {isTeamManager && onOpenTeam && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsUserMenuOpen(false);
+                          onOpenTeam();
+                        }}
+                        className="w-full flex items-center gap-2 rounded px-2.5 py-1.5 text-xs text-brand-navy/80 hover:bg-brand-navy/5 hover:text-brand-navy cursor-pointer"
+                      >
+                        <Users className="h-3.5 w-3.5 text-brand-navy/60 shrink-0" />
+                        <span>Equipo del medio</span>
+                      </button>
+                    )}
 
                     {isAdmin && onOpenAdmin && (
                       <button
