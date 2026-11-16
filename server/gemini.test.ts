@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { calculateBackoffMs, calculateEstimatedCostUsd, classifyGeminiError, generateGeminiContent, GeminiError } from './gemini';
+import { calculateBackoffMs, calculateEstimatedCostUsd, classifyGeminiError, generateGeminiContent, GeminiError, getGeminiModels } from './gemini';
 import { addKnownCost, validateIdempotencyKey } from './ai-generations';
 
 test('classifies retryable Gemini provider failures', () => {
@@ -36,6 +36,24 @@ test('estimates cost with the official Gemini price in effect on the generation 
   const january = calculateEstimatedCostUsd('gemini-3.6-flash', MILLION, new Date('2027-01-01T00:00:00Z'));
   assert.equal(january.estimatedCostUsd, 1.5 + 7.5 + 7.5);
   assert.equal(january.pricingVersion, 'gemini-api-pricing-2026-10-28/2027');
+});
+
+test('gemini-3.8-flash is priced like gemini-3.6-flash in both periods', () => {
+  // ai.google.dev/gemini-api/docs/pricing (checked 2026-11-15): same prices as gemini-3.6-flash.
+  const november = calculateEstimatedCostUsd('gemini-3.8-flash', MILLION, new Date('2026-11-15T12:00:00Z'));
+  assert.equal(november.estimatedCostUsd, 0.75 + 3.75 + 3.75);
+  const january = calculateEstimatedCostUsd('gemini-3.8-flash', MILLION, new Date('2027-01-01T00:00:00Z'));
+  assert.equal(january.estimatedCostUsd, 1.5 + 7.5 + 7.5);
+});
+
+test('the default primary model is gemini-3.8-flash', () => {
+  const previous = process.env.GEMINI_PRIMARY_MODEL;
+  delete process.env.GEMINI_PRIMARY_MODEL;
+  try {
+    assert.equal(getGeminiModels()[0], 'gemini-3.8-flash');
+  } finally {
+    if (previous !== undefined) process.env.GEMINI_PRIMARY_MODEL = previous;
+  }
 });
 
 test('an override with invalid prices is ignored instead of recording NaN costs', () => {

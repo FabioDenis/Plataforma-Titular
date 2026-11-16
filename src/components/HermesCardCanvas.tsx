@@ -5,6 +5,7 @@ import {
   HERMES_CARD_FORMATS,
 } from '../data/hermesOfficialTemplates';
 import { fetchImageViaProxy } from '../utils/imageExportHelper';
+import { useFitScale } from '../hooks/useFitScale';
 
 export interface HermesCardCanvasProps {
   customization: HermesTemplateCustomization;
@@ -45,6 +46,21 @@ export const HermesCardCanvas: React.FC<HermesCardCanvasProps> = ({
   const isStory = format === 'instagram-story';
   const isSquare = format === 'square-post';
   const aspectClass = isStory ? 'aspect-[9/16]' : isSquare ? 'aspect-square' : 'aspect-[4/5]';
+
+  // Long headlines and subtitles shrink to fit their line limit instead of being cut with an ellipsis.
+  const headlineRef = React.useRef<HTMLHeadingElement>(null);
+  const subtitleRef = React.useRef<HTMLParagraphElement>(null);
+  const fitDeps = [format, customization.fontFamily, customization.secondaryFontFamily, customization.subtitleStyle];
+  const headlineScale = useFitScale(
+    headlineRef,
+    [headline, customization.titleSize, customization.titleWeight, ...fitDeps],
+    { min: 0.6 }
+  );
+  const subtitleScale = useFitScale(
+    subtitleRef,
+    [subtitle, customization.showSubtitle, customization.subtitleSize, customization.subtitleWeight, ...fitDeps],
+    { min: 0.8 }
+  );
   // Helper for font size mapping
   const getTitleFontSize = () => {
     switch (customization.titleSize) {
@@ -461,11 +477,13 @@ export const HermesCardCanvas: React.FC<HermesCardCanvasProps> = ({
 
           {/* HEADLINE / TITULAR */}
           <h2
-            className={`leading-[1.18] tracking-tight transition-all rounded-none ${isStory ? 'line-clamp-4' : 'line-clamp-3'}`}
+            ref={headlineRef}
+            className={`leading-[1.18] tracking-tight rounded-none ${isStory ? 'line-clamp-4' : 'line-clamp-3'}`}
             style={{
+              ['--fit-scale' as string]: headlineScale,
               fontFamily: customization.fontFamily,
               fontWeight: getTitleFontWeight(),
-              fontSize: getTitleFontSize(),
+              fontSize: `calc(${getTitleFontSize()} * var(--fit-scale, 1))`,
               color: effectiveTitleColor,
               textAlign: titleAlign,
               textShadow: 'none',
@@ -477,7 +495,8 @@ export const HermesCardCanvas: React.FC<HermesCardCanvasProps> = ({
           {/* SUBTITLE / BAJADA */}
           {customization.showSubtitle && subtitle && (
             <p
-              className={`leading-snug transition-all rounded-none ${isStory ? 'line-clamp-3' : 'line-clamp-2'} ${
+              ref={subtitleRef}
+              className={`leading-snug rounded-none ${isStory ? 'line-clamp-3' : 'line-clamp-2'} ${
                 customization.subtitleStyle === 'italic'
                   ? 'italic'
                   : customization.subtitleStyle === 'highlight'
@@ -487,9 +506,10 @@ export const HermesCardCanvas: React.FC<HermesCardCanvasProps> = ({
                   : 'font-normal opacity-95'
               }`}
               style={{
+                ['--fit-scale' as string]: subtitleScale,
                 fontFamily: customization.secondaryFontFamily || customization.fontFamily,
                 fontWeight: getSubtitleFontWeight(),
-                fontSize: getSubtitleFontSize(),
+                fontSize: `calc(${getSubtitleFontSize()} * var(--fit-scale, 1))`,
                 color: effectiveSubtitleColor,
                 borderColor: customization.primaryColor,
                 textAlign: subtitleAlign,

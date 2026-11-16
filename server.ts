@@ -1869,10 +1869,10 @@ REGLAS STRICTAS DE PERIODISMO Y EDICIÓN:
 8. Prioriza siempre el dato o acontecimiento principal (la "pirámide invertida").
 
 REGLAS DE FORMATO Y CONTENIDO:
-• "feed.headline": Titular para la placa oficial (máximo 8-10 palabras).
-• "feed.subtitle": Resumen conciso de la noticia en 1 sola oración corta.
-• "story.headline": Titular directo adaptado a formato Historia (9:16).
-• "story.subtitle": Bajada breve para Historia.
+• "feed.headline": Titular para la placa oficial. Máximo 60 caracteres contando espacios (entre 6 y 9 palabras). Debe ser una idea completa: nunca termines en conjunción, preposición ni puntos suspensivos. Si no entra, reformúlalo más corto en lugar de cortarlo.
+• "feed.subtitle": Resumen conciso de la noticia en 1 sola oración completa de máximo 100 caracteres, sin puntos suspensivos.
+• "story.headline": Titular directo adaptado a formato Historia (9:16), máximo 70 caracteres, idea completa.
+• "story.subtitle": Bajada breve para Historia, máximo 120 caracteres, sin puntos suspensivos.
 • "instagram.caption": Redactado con el tono "${editorialDNA?.tone || 'Periodístico'}".
 • "facebook.caption": Más desarrollado e informativo.
 • "linkedin.caption": Tono profesional.
