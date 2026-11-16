@@ -48,7 +48,7 @@ export const HashtagsAndMetadata: React.FC<HashtagsAndMetadataProps> = ({ posts,
               <button
                 key={idx}
                 onClick={() => handleCopyTag(tag)}
-                className="inline-flex items-center gap-1 rounded-md border border-brand-navy/15 bg-white px-2.5 py-1 text-xs font-mono font-semibold text-blue-700 hover:border-brand-primary/50 hover:bg-brand-navy/10 transition-all cursor-pointer"
+                className="inline-flex max-w-full items-center gap-1 break-all text-left rounded-md border border-brand-navy/15 bg-white px-2.5 py-1 text-xs font-mono font-semibold text-blue-700 hover:border-brand-primary/50 hover:bg-brand-navy/10 transition-all cursor-pointer"
                 title="Haz clic para copiar este hashtag"
               >
                 <span>{tag}</span>
