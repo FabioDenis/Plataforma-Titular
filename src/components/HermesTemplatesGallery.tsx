@@ -251,9 +251,6 @@ export const HermesTemplatesGallery: React.FC<HermesTemplatesGalleryProps> = ({
             <h3 className="text-sm font-bold text-brand-ink uppercase tracking-wider">
               Plantillas Oficiales de Titular
             </h3>
-            <span className="rounded-full bg-brand-primary-soft px-2 py-0.5 text-[10px] font-mono font-bold text-brand-navy border border-brand-primary/40">
-              Sistema Unificado
-            </span>
           </div>
           <p className="mt-1 text-xs text-brand-navy/80">
             Personaliza tipografías, colores, logo y composición. Los cambios se aplicarán automáticamente a cada publicación generada.
@@ -373,7 +370,6 @@ export const HermesTemplatesGallery: React.FC<HermesTemplatesGalleryProps> = ({
                   logoUrl={mediaLogo}
                   mediaName={mediaName}
                   websiteText={mediaWebsite}
-                  callToAction={currentIdentity.editorial?.callToAction}
                   imageZoom={imageZoom}
                   imageOffsetX={imageOffsetX}
                   imageOffsetY={imageOffsetY}

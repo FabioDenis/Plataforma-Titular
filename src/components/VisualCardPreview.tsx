@@ -4,7 +4,6 @@ import {
   Check,
   RefreshCw,
   Sparkles,
-  Zap,
   RotateCcw,
   AlertCircle,
   Upload,
@@ -354,10 +353,6 @@ export const VisualCardPreview: React.FC<VisualCardPreviewProps> = ({
               <Sparkles className="h-4 w-4 text-brand-primary-deep" />
               Editor Visual de la Publicación
             </h3>
-            <span className="rounded-full bg-brand-primary-soft border border-brand-primary/40 px-2.5 py-0.5 text-[10px] font-bold text-brand-navy flex items-center gap-1">
-              <Zap className="h-3 w-3 text-brand-primary-deep" />
-              Sistema Unificado
-            </span>
           </div>
           <p className="text-xs text-brand-navy/80 mt-1 font-normal">
             Ajusta textos, encuadre de imagen, colores y composición. Formatos reales para Instagram y Facebook.
@@ -594,7 +589,6 @@ export const VisualCardPreview: React.FC<VisualCardPreviewProps> = ({
                   logoUrl={mediaLogo}
                   mediaName={mediaName}
                   websiteText={mediaWebsite}
-                  callToAction={activeIdentity?.editorial?.callToAction}
                   imageZoom={imageZoom}
                   imageOffsetX={imageOffsetX}
                   imageOffsetY={imageOffsetY}
