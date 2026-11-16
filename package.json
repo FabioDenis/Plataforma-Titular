@@ -12,7 +12,7 @@
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
     "test": "npm run test:unit && npm run test:emulator",
-    "test:unit": "node --import tsx --import ./server/test-env.ts --test server/gemini.test.ts server/auth-bootstrap.test.ts server/safe-fetch.test.ts server/rate-limit.test.ts server/outbound-endpoints.test.ts server/image-type.test.ts src/utils/newsroomTotals.test.ts src/utils/teamSeats.test.ts src/utils/fitText.test.ts",
+    "test:unit": "node --import tsx --import ./server/test-env.ts --test server/gemini.test.ts server/auth-bootstrap.test.ts server/safe-fetch.test.ts server/rate-limit.test.ts server/outbound-endpoints.test.ts server/image-type.test.ts server/hashtags.test.ts src/utils/newsroomTotals.test.ts src/utils/teamSeats.test.ts src/utils/fitText.test.ts",
     "test:emulator": "firebase emulators:exec --project demo-titular --only firestore \"node --import tsx --import ./server/test-env.ts --test server/ai-generations.emulator.test.ts server/auth-bootstrap.emulator.test.ts server/firestore-rules.emulator.test.ts server/organization-members.emulator.test.ts server/organization-admin.emulator.test.ts server/newsroom-team.emulator.test.ts\"",
     "test:gemini": "node --import tsx --import ./server/test-env.ts --test server/gemini.test.ts",
     "test:ai:emulator": "firebase emulators:exec --project demo-titular --only firestore \"node --import tsx --import ./server/test-env.ts --test server/ai-generations.emulator.test.ts\"",

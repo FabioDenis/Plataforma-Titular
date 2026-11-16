@@ -75,6 +75,7 @@ import { getOrganizationUsageHistory, listManagedOrganizations, setOrganizationL
 import { isPublicHttpUrl, safeFetch, SafeFetch, SafeFetchError } from './server/safe-fetch';
 import { createRateLimiter } from './server/rate-limit';
 import { resolveImageContentType } from './server/image-type';
+import { normalizeHashtags } from './server/hashtags';
 
 // Safe resolution for __dirname in both CJS bundle and ESM environments
 const getCurrentDir = (): string => {
@@ -1877,7 +1878,7 @@ REGLAS DE FORMATO Y CONTENIDO:
 • "facebook.caption": Más desarrollado e informativo.
 • "linkedin.caption": Tono profesional.
 ${editorialDNA?.callToAction ? `• CIERRE OBLIGATORIO DE CAPTION: todos los captions (Instagram, Facebook, LinkedIn) DEBEN finalizar con el llamado a la acción exacto: "${editorialDNA.callToAction}".` : ''}
-• "hashtags": Generar entre 3 y 6 hashtags directamente relevantes.
+• "hashtags": Generar entre 3 y 6 hashtags directamente relevantes. Cada elemento del arreglo es UN solo hashtag (ej: "#Encarnación"), sin espacios, de máximo 25 caracteres. Nunca unir varios temas en un mismo hashtag.
 • "keywords": Extraer 4 a 8 palabras clave.
 • "priority": Clasificar la urgencia como: "Alta", "Media" o "Baja".
 • "confidence": Porcentaje entero de certeza (ej: 98).
@@ -1980,7 +1981,10 @@ ${article.content}
             contents: promptText,
             config: { systemInstruction, responseMimeType: 'application/json', responseSchema, temperature: 0.2 },
           },
-          transform: (response) => JSON.parse(response.text?.trim() || ''),
+          transform: (response) => {
+            const posts = JSON.parse(response.text?.trim() || '');
+            return { ...posts, hashtags: normalizeHashtags(posts?.hashtags) };
+          },
         });
 
         return res.json({
