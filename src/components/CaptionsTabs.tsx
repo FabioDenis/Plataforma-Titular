@@ -4,9 +4,11 @@ import { SocialPostsOutput } from '../types';
 
 interface CaptionsTabsProps {
   posts: SocialPostsOutput;
+  /** Editorial call to action that must close every caption. */
+  callToAction?: string;
 }
 
-export const CaptionsTabs: React.FC<CaptionsTabsProps> = ({ posts }) => {
+export const CaptionsTabs: React.FC<CaptionsTabsProps> = ({ posts, callToAction }) => {
   const [activePlatform, setActivePlatform] = useState<'instagram' | 'facebook'>('instagram');
   const [copied, setCopied] = useState(false);
 
@@ -41,7 +43,12 @@ export const CaptionsTabs: React.FC<CaptionsTabsProps> = ({ posts }) => {
   };
 
   const handleCopy = () => {
-    const caption = getCurrentCaption();
+    const baseCaption = getCurrentCaption();
+    // The editorial CTA must always close the caption (skip when the AI already appended it).
+    const ctaText = callToAction?.trim();
+    const caption = ctaText && !baseCaption.includes(ctaText) ? `${baseCaption}
+
+${ctaText}` : baseCaption;
     // Manual upload flow: copy caption + hashtags together (skip if already present).
     const hashtagLine = posts.hashtags?.length
       ? posts.hashtags.map((tag) => (tag.startsWith('#') ? tag : `#${tag}`)).join(' ')

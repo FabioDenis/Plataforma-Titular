@@ -318,7 +318,7 @@ function MainAppContent() {
                 />
 
                 {/* Social Captions Tabs */}
-                <CaptionsTabs posts={currentPosts} />
+                <CaptionsTabs posts={currentPosts} callToAction={activeIdentity.editorial?.callToAction} />
 
                 {/* Hashtags, Keywords & Article Metadata */}
                 <HashtagsAndMetadata posts={currentPosts} article={currentArticle} />

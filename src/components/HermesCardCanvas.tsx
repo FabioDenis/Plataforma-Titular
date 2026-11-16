@@ -17,7 +17,6 @@ export interface HermesCardCanvasProps {
   mediaName?: string;
   websiteText?: string;
   /** Editorial call to action — always rendered as the last line of the footer. */
-  callToAction?: string;
   imageZoom?: number; // 100 to 300
   imageOffsetX?: number; // percentage or px
   imageOffsetY?: number; // percentage or px
@@ -35,7 +34,6 @@ export const HermesCardCanvas: React.FC<HermesCardCanvasProps> = ({
   logoUrl,
   mediaName = 'TITULAR',
   websiteText,
-  callToAction,
   imageZoom = 100,
   imageOffsetX = 0,
   imageOffsetY = 0,
@@ -574,18 +572,6 @@ export const HermesCardCanvas: React.FC<HermesCardCanvasProps> = ({
             )}
           </div>
 
-          {/* CALL TO ACTION — always the closing line of the publication footer */}
-          {callToAction && callToAction.trim() && (
-            <div className="pt-1.5 flex items-start justify-center gap-1.5">
-              <span
-                className="h-1.5 w-1.5 rounded-none shrink-0 mt-[3px]"
-                style={{ backgroundColor: customization.primaryColor }}
-              />
-              <span className="text-[10px] font-medium leading-snug text-white/75 text-center">
-                {callToAction.trim()}
-              </span>
-            </div>
-          )}
         </div>
       </div>
     </div>
