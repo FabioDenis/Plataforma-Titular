@@ -68,12 +68,18 @@ export const GEMINI_PRICING_SCHEDULE: PricingPeriod[] = [
   {
     from: '2026-01-01',
     version: 'gemini-api-pricing-2026-10-28/2026',
-    models: { 'gemini-3.6-flash': { inputPerMillionUsd: 0.75, outputPerMillionUsd: 3.75 } },
+    models: {
+      'gemini-3.6-flash': { inputPerMillionUsd: 0.75, outputPerMillionUsd: 3.75 },
+      'gemini-3.8-flash': { inputPerMillionUsd: 0.75, outputPerMillionUsd: 3.75 },
+    },
   },
   {
     from: '2027-01-01',
     version: 'gemini-api-pricing-2026-10-28/2027',
-    models: { 'gemini-3.6-flash': { inputPerMillionUsd: 1.5, outputPerMillionUsd: 7.5 } },
+    models: {
+      'gemini-3.6-flash': { inputPerMillionUsd: 1.5, outputPerMillionUsd: 7.5 },
+      'gemini-3.8-flash': { inputPerMillionUsd: 1.5, outputPerMillionUsd: 7.5 },
+    },
   },
 ];
 
@@ -112,9 +118,12 @@ function pricingFor(model: string, at: Date): { version: string; pricing: ModelP
   return period ? { version: period.version, pricing: period.models[model] } : null;
 }
 
+// Stable and priced the same as gemini-3.6-flash (pricing page checked 2026-11-15).
+export const DEFAULT_GEMINI_MODEL = 'gemini-3.8-flash';
+
 export function getGeminiModels(): string[] {
-  const configuredPrimary = getOptionalServerEnv('GEMINI_PRIMARY_MODEL', 'gemini-3.6-flash');
-  const primary = configuredPrimary.endsWith('-latest') ? 'gemini-3.6-flash' : configuredPrimary;
+  const configuredPrimary = getOptionalServerEnv('GEMINI_PRIMARY_MODEL', DEFAULT_GEMINI_MODEL);
+  const primary = configuredPrimary.endsWith('-latest') ? DEFAULT_GEMINI_MODEL : configuredPrimary;
   const configuredFallbacks = getOptionalServerEnv('GEMINI_FALLBACK_MODELS')
     .split(',')
     .map((model) => model.trim())
