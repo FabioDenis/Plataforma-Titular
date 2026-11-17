@@ -1,4 +1,5 @@
 import { toCanvas } from 'html-to-image';
+import { buildFontEmbedCss } from './fontEmbed';
 import { getClientAuth } from '../lib/firebase';
 
 /**
@@ -132,9 +133,13 @@ export async function exportCardToExactPng({
     const scaleRatio = targetWidth / currentWidth;
 
     // 4. Render to intermediate canvas using html-to-image toCanvas
+    // Embed the card's web fonts: the SVG snapshot cannot use the page fonts, and a fallback
+    // font wraps the text differently than the live preview.
+    await document.fonts?.ready;
+    const fontEmbedCSS = await buildFontEmbedCss(cardElement);
     const intermediateCanvas = await toCanvas(cardElement, {
       pixelRatio: scaleRatio,
-      skipFonts: true, // Uses browser's already loaded web fonts, avoiding CORS font stylesheet failures
+      fontEmbedCSS,
       cacheBust: false,
       quality: 1,
       // Provide fallback so broken nested images never reject the render promise
