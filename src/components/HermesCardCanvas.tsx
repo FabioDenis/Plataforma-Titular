@@ -6,6 +6,7 @@ import {
 } from '../data/hermesOfficialTemplates';
 import { fetchImageViaProxy } from '../utils/imageExportHelper';
 import { useFitScale } from '../hooks/useFitScale';
+import { getLogoBox, getPanelBackground } from '../utils/cardStyle';
 
 export interface HermesCardCanvasProps {
   customization: HermesTemplateCustomization;
@@ -142,19 +143,8 @@ export const HermesCardCanvas: React.FC<HermesCardCanvasProps> = ({
     }
   };
 
-  const getLogoHeightPx = () => {
-    switch (customization.logoSize) {
-      case 'small':
-        return 38;
-      case 'large':
-        return 72;
-      case 'xlarge':
-        return 96;
-      case 'medium':
-      default:
-        return 52;
-    }
-  };
+  const logoBox = getLogoBox(customization.logoSize);
+  const footerLogoBox = getLogoBox(customization.logoSize, 0.6);
 
   // Overlay background CSS generator
   const getOverlayBackground = () => {
@@ -183,31 +173,6 @@ export const HermesCardCanvas: React.FC<HermesCardCanvasProps> = ({
       default:
         return `linear-gradient(to top, rgba(${baseRgb}, ${alpha}) 0%, rgba(${baseRgb}, ${alpha * 0.85}) 35%, rgba(${baseRgb}, ${alpha * 0.3}) 65%, transparent 100%)`;
     }
-  };
-
-  // Panel background CSS
-  const getPanelBackground = () => {
-    const opacity = (customization.panelOpacity ?? 90) / 100;
-    const bgType = customization.panelBackgroundType || 'translucent';
-
-    if (bgType === 'solid') {
-      return customization.secondaryColor || '#090d16';
-    }
-    if (bgType === 'gradient') {
-      return `linear-gradient(to top, ${customization.secondaryColor || '#090d16'}, transparent)`;
-    }
-    if (bgType === 'translucent') {
-      // Convert hex to rgba
-      const hex = (customization.secondaryColor || '#090d16').replace('#', '');
-      if (hex.length === 6) {
-        const r = parseInt(hex.substring(0, 2), 16);
-        const g = parseInt(hex.substring(2, 4), 16);
-        const b = parseInt(hex.substring(4, 6), 16);
-        return `rgba(${r}, ${g}, ${b}, ${opacity})`;
-      }
-      return `rgba(9, 13, 22, ${opacity})`;
-    }
-    return 'transparent';
   };
 
   // Effective title and subtitle colors
@@ -306,8 +271,8 @@ export const HermesCardCanvas: React.FC<HermesCardCanvasProps> = ({
                 src={logoUrl}
                 alt={mediaName}
                 crossOrigin="anonymous"
-                className="object-contain rounded-none"
-                style={{ height: `${getLogoHeightPx()}px`, maxWidth: '160px' }}
+                className="shrink-0 object-contain rounded-none"
+                style={{ height: `${logoBox.height}px`, width: 'auto', maxWidth: `${logoBox.maxWidth}px` }}
               />
             ) : (
               <div className="px-2.5 py-1 bg-black/90 border border-white/20 text-white font-mono font-bold text-[11px] rounded-none">
@@ -352,8 +317,8 @@ export const HermesCardCanvas: React.FC<HermesCardCanvasProps> = ({
                 src={logoUrl}
                 alt={mediaName}
                 crossOrigin="anonymous"
-                className="object-contain rounded-none"
-                style={{ height: `${getLogoHeightPx()}px`, maxWidth: '160px' }}
+                className="shrink-0 object-contain rounded-none"
+                style={{ height: `${logoBox.height}px`, width: 'auto', maxWidth: `${logoBox.maxWidth}px` }}
               />
             ) : (
               <div className="px-2.5 py-1 bg-black/90 border border-white/20 text-white font-mono font-bold text-[11px] rounded-none">
@@ -372,7 +337,7 @@ export const HermesCardCanvas: React.FC<HermesCardCanvasProps> = ({
           }`}
           style={{
             padding: `${isStory ? (customization.panelPadding ? Math.round(customization.panelPadding * 1.15) : 28) : (customization.panelPadding ?? 24)}px`,
-            background: getPanelBackground(),
+            background: getPanelBackground(customization.panelBackgroundType, customization.secondaryColor, customization.panelOpacity),
             borderRadius: 0,
             boxShadow: 'none',
           }}
@@ -390,8 +355,8 @@ export const HermesCardCanvas: React.FC<HermesCardCanvasProps> = ({
                   src={logoUrl}
                   alt={mediaName}
                   crossOrigin="anonymous"
-                  className="object-contain rounded-none"
-                  style={{ height: `${getLogoHeightPx()}px`, maxWidth: '160px' }}
+                  className="shrink-0 object-contain rounded-none"
+                  style={{ height: `${logoBox.height}px`, width: 'auto', maxWidth: `${logoBox.maxWidth}px` }}
                 />
               ) : (
                 <span className="text-[11px] font-mono font-bold text-white/90 uppercase tracking-wider">
@@ -531,8 +496,8 @@ export const HermesCardCanvas: React.FC<HermesCardCanvasProps> = ({
                     src={logoUrl}
                     alt={mediaName}
                     crossOrigin="anonymous"
-                    className="object-contain rounded-none"
-                    style={{ height: `${Math.max(24, getLogoHeightPx() * 0.6)}px`, maxWidth: '120px' }}
+                    className="shrink-0 object-contain rounded-none"
+                    style={{ height: `${footerLogoBox.height}px`, width: 'auto', maxWidth: `${footerLogoBox.maxWidth}px` }}
                   />
                 ) : (
                   <span className="font-mono text-[10px] font-bold text-white/90 uppercase">{mediaName}</span>
@@ -562,8 +527,8 @@ export const HermesCardCanvas: React.FC<HermesCardCanvasProps> = ({
                     src={logoUrl}
                     alt={mediaName}
                     crossOrigin="anonymous"
-                    className="object-contain rounded-none"
-                    style={{ height: `${Math.max(24, getLogoHeightPx() * 0.6)}px`, maxWidth: '120px' }}
+                    className="shrink-0 object-contain rounded-none"
+                    style={{ height: `${footerLogoBox.height}px`, width: 'auto', maxWidth: `${footerLogoBox.maxWidth}px` }}
                   />
                 ) : (
                   <span className="font-mono text-[10px] font-bold text-white/90 uppercase">{mediaName}</span>
