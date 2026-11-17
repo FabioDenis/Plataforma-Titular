@@ -145,9 +145,9 @@ export interface HermesOfficialTemplate {
 export const HERMES_OFFICIAL_TEMPLATES: HermesOfficialTemplate[] = [
   {
     id: 'hermes-editorial',
-    name: 'Editorial',
+    name: 'Noticia general',
     tagline: 'Limpio, sobrio y periodístico',
-    description: 'Diseño limpio y profesional con imagen predominante, titular destacado, logo del medio y bajada breve. Ideal para noticias generales y reportajes.',
+    description: 'Para las publicaciones habituales del medio.',
     idealFor: 'Noticias generales, política, actualidad e informes especiales',
     badgeText: 'Prensa General',
     badgeBg: '#2563eb',
@@ -192,11 +192,11 @@ export const HERMES_OFFICIAL_TEMPLATES: HermesOfficialTemplate[] = [
   },
   {
     id: 'hermes-breaking',
-    name: 'Breaking News',
+    name: 'Último momento',
     tagline: 'Alto impacto y urgencia',
-    description: 'Diseño impactante con titular de gran escala, etiqueta destacada de última hora, imagen de fondo y logo visible. Ideal para noticias urgentes.',
+    description: 'Para noticias urgentes y acontecimientos en desarrollo.',
     idealFor: 'Último momento, alertas informativas, sucesos y noticias urgentes',
-    badgeText: 'Urgente / Alerta',
+    badgeText: 'Urgente',
     badgeBg: '#dc2626',
     layoutArchetype: 'tv-news',
     defaultCustomization: {
@@ -239,11 +239,11 @@ export const HERMES_OFFICIAL_TEMPLATES: HermesOfficialTemplate[] = [
   },
   {
     id: 'hermes-minimal',
-    name: 'Minimal',
+    name: 'Noticia breve',
     tagline: 'Elegante, sobrio y espacioso',
-    description: 'Diseño elegante y sobrio con mucho espacio visual, tipografía protagonista, imagen integrada limpiamente y logo discreto.',
+    description: 'Para novedades rápidas y mensajes concretos.',
     idealFor: 'Cultura, opinión, tendencias, economía y comunicación corporativa',
-    badgeText: 'Minimal / Clean',
+    badgeText: 'Breve',
     badgeBg: '#475569',
     layoutArchetype: 'minimal',
     defaultCustomization: {
@@ -286,11 +286,11 @@ export const HERMES_OFFICIAL_TEMPLATES: HermesOfficialTemplate[] = [
   },
   {
     id: 'hermes-magazine',
-    name: 'Magazine',
+    name: 'Noticia destacada',
     tagline: 'Premium, refinado y editorial',
-    description: 'Diseño más editorial y premium con imagen protagonista, titular estilizado y bajada en una composición sofisticada. Ideal para notas especiales.',
+    description: 'Para contenidos principales con mayor impacto visual.',
     idealFor: 'Notas especiales, crónicas, entrevistas de fondo y suplementos',
-    badgeText: 'Revista / Premium',
+    badgeText: 'Destacada',
     badgeBg: '#d97706',
     layoutArchetype: 'editorial-clean',
     defaultCustomization: {
