@@ -7,6 +7,7 @@ import {
 import { fetchImageViaProxy } from '../utils/imageExportHelper';
 import { useFitScale } from '../hooks/useFitScale';
 import { getLogoBox, getPanelBackground } from '../utils/cardStyle';
+import { clampPan, computeImageFrame, panDeltaFromPixels } from '../utils/imageFraming';
 
 export interface HermesCardCanvasProps {
   customization: HermesTemplateCustomization;
@@ -19,8 +20,11 @@ export interface HermesCardCanvasProps {
   websiteText?: string;
   /** Editorial call to action — always rendered as the last line of the footer. */
   imageZoom?: number; // 100 to 300
-  imageOffsetX?: number; // percentage or px
-  imageOffsetY?: number; // percentage or px
+  /** Pan in -100..100 units of the available overflow (see utils/imageFraming). */
+  imageOffsetX?: number;
+  imageOffsetY?: number;
+  /** When set, the photo can be dragged on the card to reframe it. */
+  onChangeImageOffset?: (offsetX: number, offsetY: number) => void;
   containerRef?: React.RefObject<HTMLDivElement>;
   isExporting?: boolean;
   format?: HermesCardFormat;
@@ -38,6 +42,7 @@ export const HermesCardCanvas: React.FC<HermesCardCanvasProps> = ({
   imageZoom = 100,
   imageOffsetX = 0,
   imageOffsetY = 0,
+  onChangeImageOffset,
   containerRef,
   isExporting = false,
   format = 'instagram-feed',
@@ -189,12 +194,88 @@ export const HermesCardCanvas: React.FC<HermesCardCanvasProps> = ({
   // Fallback image if none provided
   const effectiveImage = imageUrl || 'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?auto=format&fit=crop&w=1200&q=80';
 
-  // Calculate image transform (Zoom + Pan)
-  // Ensure image fully covers canvas (object-fit: cover behavior with dynamic translation)
-  const scaleValue = Math.max(1, imageZoom / 100);
-  const transformStyle: React.CSSProperties = {
-    transform: `scale(${scaleValue}) translate(${imageOffsetX / scaleValue}px, ${imageOffsetY / scaleValue}px)`,
-    transformOrigin: 'center center',
+  // Image framing (Zoom + Pan). The photo is sized like object-fit: cover times the zoom and
+  // moved only within its overflow, so it always covers the whole card (no empty gaps).
+  const imageLayerRef = React.useRef<HTMLDivElement>(null);
+  const [layerSize, setLayerSize] = React.useState<{ width: number; height: number } | null>(null);
+  // Natural size of the photo, tagged with the image it was measured for, so a new photo is
+  // never framed with the previous one's proportions.
+  const [measuredImage, setMeasuredImage] = React.useState<{ src: string; width: number; height: number } | null>(
+    null
+  );
+  const naturalSize = measuredImage?.src === effectiveImage ? measuredImage : null;
+
+  React.useEffect(() => {
+    const layer = imageLayerRef.current;
+    if (!layer) return;
+    const measure = () => {
+      const { clientWidth, clientHeight } = layer;
+      if (clientWidth > 0 && clientHeight > 0) {
+        setLayerSize((prev) =>
+          prev && prev.width === clientWidth && prev.height === clientHeight
+            ? prev
+            : { width: clientWidth, height: clientHeight }
+        );
+      }
+    };
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(layer);
+    return () => observer.disconnect();
+  }, []);
+
+  const imageFrame =
+    layerSize && naturalSize
+      ? computeImageFrame({
+          containerWidth: layerSize.width,
+          containerHeight: layerSize.height,
+          naturalWidth: naturalSize.width,
+          naturalHeight: naturalSize.height,
+          zoom: imageZoom,
+          panX: imageOffsetX,
+          panY: imageOffsetY,
+        })
+      : null;
+
+  // Until both sizes are known, fall back to a centered cover image (never a gap).
+  const imageStyle: React.CSSProperties = imageFrame
+    ? {
+        position: 'absolute',
+        width: `${imageFrame.width}px`,
+        height: `${imageFrame.height}px`,
+        left: `${imageFrame.left}px`,
+        top: `${imageFrame.top}px`,
+        maxWidth: 'none',
+        maxHeight: 'none',
+      }
+    : {};
+
+  // Drag to reframe: pointer movement is converted into pan units of the current overflow.
+  const dragRef = React.useRef<{ pointerId: number; x: number; y: number; panX: number; panY: number } | null>(null);
+  const canDrag = Boolean(onChangeImageOffset) && !isExporting;
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!canDrag || e.button !== 0) return;
+    dragRef.current = { pointerId: e.pointerId, x: e.clientX, y: e.clientY, panX: imageOffsetX, panY: imageOffsetY };
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== e.pointerId || !imageFrame || !layerSize || !onChangeImageOffset) return;
+    const overflowX = imageFrame.width - layerSize.width;
+    const overflowY = imageFrame.height - layerSize.height;
+    onChangeImageOffset(
+      Math.round(clampPan(drag.panX + panDeltaFromPixels(e.clientX - drag.x, overflowX))),
+      Math.round(clampPan(drag.panY + panDeltaFromPixels(e.clientY - drag.y, overflowY)))
+    );
+  };
+
+  const handlePointerEnd = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (dragRef.current?.pointerId !== e.pointerId) return;
+    dragRef.current = null;
+    e.currentTarget.releasePointerCapture?.(e.pointerId);
   };
 
   // Content alignment class (bottom, center, full). The wrapper gets flex-1 so these
@@ -211,21 +292,42 @@ export const HermesCardCanvas: React.FC<HermesCardCanvasProps> = ({
     <div
       ref={containerRef}
       id="hermes-card-canvas"
-      className={`relative w-full ${aspectClass} overflow-hidden bg-[#090d16] flex flex-col justify-between select-none rounded-none shadow-none transition-all duration-300`}
+      className={`relative w-full ${aspectClass} overflow-hidden bg-[#090d16] flex flex-col justify-between select-none rounded-none shadow-none transition-all duration-300 ${
+        canDrag ? 'cursor-grab active:cursor-grabbing' : ''
+      }`}
       style={{
         fontFamily: customization.fontFamily,
         boxShadow: 'none',
         borderRadius: 0,
+        touchAction: canDrag ? 'none' : undefined,
       }}
+      onPointerDown={canDrag ? handlePointerDown : undefined}
+      onPointerMove={canDrag ? handlePointerMove : undefined}
+      onPointerUp={canDrag ? handlePointerEnd : undefined}
+      onPointerCancel={canDrag ? handlePointerEnd : undefined}
     >
       {/* 1. LAYER: BACKGROUND IMAGE (Always 100% cover, no black bars) */}
-      <div className="absolute inset-0 w-full h-full overflow-hidden pointer-events-none rounded-none">
+      <div
+        ref={imageLayerRef}
+        className="absolute inset-0 w-full h-full overflow-hidden pointer-events-none rounded-none"
+      >
         <img
           src={effectiveImage}
           alt={headline}
           crossOrigin="anonymous"
-          className="w-full h-full object-cover rounded-none transition-transform duration-100 ease-out"
-          style={transformStyle}
+          draggable={false}
+          className={imageFrame ? 'rounded-none' : 'w-full h-full object-cover rounded-none'}
+          style={imageStyle}
+          onLoad={(e) => {
+            const { naturalWidth, naturalHeight } = e.currentTarget;
+            if (naturalWidth > 0 && naturalHeight > 0) {
+              setMeasuredImage((prev) =>
+                prev && prev.src === effectiveImage && prev.width === naturalWidth && prev.height === naturalHeight
+                  ? prev
+                  : { src: effectiveImage, width: naturalWidth, height: naturalHeight }
+              );
+            }
+          }}
           onError={(e) => {
             const target = e.target as HTMLImageElement;
             const fallbackSrc =
