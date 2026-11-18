@@ -373,6 +373,10 @@ export const HermesTemplatesGallery: React.FC<HermesTemplatesGalleryProps> = ({
                   imageZoom={imageZoom}
                   imageOffsetX={imageOffsetX}
                   imageOffsetY={imageOffsetY}
+                  onChangeImageOffset={(x, y) => {
+                    setImageOffsetX(x);
+                    setImageOffsetY(y);
+                  }}
                   format={selectedFormat}
                 />
               </div>

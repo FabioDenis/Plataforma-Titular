@@ -837,7 +837,7 @@ export const HermesUnifiedEditorControls: React.FC<HermesUnifiedEditorControlsPr
                   <input type="file" accept="image/*" onChange={onUploadImage} className="hidden" />
                 </label>
                 <p className="text-[10px] text-center text-brand-navy/60 font-normal">
-                  La imagen se ajusta automáticamente (object-fit: cover) ocupando el 100% sin franjas negras.
+                  La imagen siempre cubre todo el cuadro. Arrastrala en la vista previa para encuadrarla.
                 </p>
               </div>
             )}
@@ -871,13 +871,13 @@ export const HermesUnifiedEditorControls: React.FC<HermesUnifiedEditorControlsPr
                     <span className="flex items-center gap-1">
                       <MoveHorizontal className="h-3 w-3 text-brand-primary-deep" /> Pan Horizontal:
                     </span>
-                    <span className="font-mono text-brand-primary-deep">{imageOffsetX}px</span>
+                    <span className="font-mono text-brand-primary-deep">{imageOffsetX}%</span>
                   </div>
                   <input
                     type="range"
-                    min="-150"
-                    max="150"
-                    step="5"
+                    min="-100"
+                    max="100"
+                    step="1"
                     value={imageOffsetX}
                     onChange={(e) => onChangeImageOffsetX(Number(e.target.value))}
                     className="w-full h-1.5 bg-brand-navy/10 rounded-full accent-brand-primary cursor-pointer"
@@ -889,13 +889,13 @@ export const HermesUnifiedEditorControls: React.FC<HermesUnifiedEditorControlsPr
                     <span className="flex items-center gap-1">
                       <MoveVertical className="h-3 w-3 text-brand-primary-deep" /> Pan Vertical:
                     </span>
-                    <span className="font-mono text-brand-primary-deep">{imageOffsetY}px</span>
+                    <span className="font-mono text-brand-primary-deep">{imageOffsetY}%</span>
                   </div>
                   <input
                     type="range"
-                    min="-150"
-                    max="150"
-                    step="5"
+                    min="-100"
+                    max="100"
+                    step="1"
                     value={imageOffsetY}
                     onChange={(e) => onChangeImageOffsetY(Number(e.target.value))}
                     className="w-full h-1.5 bg-brand-navy/10 rounded-full accent-brand-primary cursor-pointer"

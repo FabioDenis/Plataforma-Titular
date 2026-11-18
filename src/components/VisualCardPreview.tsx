@@ -592,6 +592,10 @@ export const VisualCardPreview: React.FC<VisualCardPreviewProps> = ({
                   imageZoom={imageZoom}
                   imageOffsetX={imageOffsetX}
                   imageOffsetY={imageOffsetY}
+                  onChangeImageOffset={(x, y) => {
+                    setImageOffsetX(x);
+                    setImageOffsetY(y);
+                  }}
                   format={selectedFormat}
                 />
               </div>
